@@ -5,8 +5,8 @@ import { useNavigate } from 'react-router-dom'
 export default function Login() {
   const { login } = useAuth()
   const navigate  = useNavigate()
-  const [form, setForm]     = useState({ login: 'admin@geocore.pe', password: 'admin123' })
-  const [error, setError]   = useState('')
+  const [form, setForm]       = useState({ login: '', password: '' })
+  const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e) {
@@ -27,7 +27,7 @@ export default function Login() {
     <div className="auth-wrap">
       <div className="auth-box">
         <div className="auth-logo">⛏ GeoCore</div>
-        <div className="auth-sub">Sistema de Gestión de Sondajes · v2.0</div>
+        <div className="auth-sub">Reporte de trabajos diarios - KPDI v2.0</div>
         <form onSubmit={handleSubmit}>
           <div className="field">
             <label>Usuario o correo electrónico</label>
@@ -37,15 +37,18 @@ export default function Login() {
               value={form.login}
               onChange={e => setForm(p => ({ ...p, login: e.target.value }))}
               required
+              autoComplete="username"
             />
           </div>
           <div className="field">
             <label>Contraseña</label>
             <input
               type="password"
+              placeholder="••••••••"
               value={form.password}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
               required
+              autoComplete="current-password"
             />
           </div>
           {error && <div className="alert a-err">{error}</div>}
@@ -53,12 +56,6 @@ export default function Login() {
             {loading ? 'Iniciando sesión...' : 'Iniciar Sesión →'}
           </button>
         </form>
-        <div className="auth-hint">
-          <b>Cuentas demo:</b><br />
-          admin@geocore.pe / admin123 (ADMIN)<br />
-          sup@geocore.pe / sup123 (SUPERVISOR)<br />
-          geo@geocore.pe / geo123 (USER)
-        </div>
       </div>
     </div>
   )

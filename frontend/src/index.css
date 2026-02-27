@@ -135,3 +135,54 @@ input, select, textarea, button { font-family: 'DM Sans', sans-serif; }
 .f-card { background: var(--sur2); border: 1px solid var(--brd); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @media(max-width:768px) { .sidebar { display: none; } .main-content { margin-left: 0; padding: 14px; } .c-grid { grid-template-columns: 1fr 1fr; } .ch-grid { grid-template-columns: 1fr; } }
+
+/* ── MOBILE RESPONSIVE ─────────────────────────────────────────── */
+/* Botón hamburguesa */
+.mob-toggle { display: none; position: fixed; top: 14px; left: 14px; z-index: 200; background: var(--sur); border: 1px solid var(--brd); border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 18px; color: var(--txt); }
+
+@media(max-width: 768px) {
+  /* Sidebar oculto por defecto en mobile */
+  .sidebar { transform: translateX(-100%); transition: transform .25s ease; z-index: 150; }
+  .sidebar.open { transform: translateX(0); }
+
+  /* Overlay cuando sidebar está abierto */
+  .mob-overlay { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 140; }
+
+  /* Contenido ocupa todo el ancho */
+  .main-content { margin-left: 0; padding: 16px; padding-top: 58px; }
+
+  /* Botón hamburguesa visible */
+  .mob-toggle { display: flex; align-items: center; justify-content: center; }
+
+  /* Cards en 2 columnas */
+  .c-grid { grid-template-columns: 1fr 1fr; }
+
+  /* Charts en 1 columna */
+  .ch-grid { grid-template-columns: 1fr; }
+
+  /* Tablas: scroll horizontal */
+  .ox { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl { min-width: 600px; }
+
+  /* Formularios en 1 columna */
+  .fgrid { grid-template-columns: 1fr; }
+
+  /* Modal ocupa más pantalla */
+  .m-bg { padding: 10px; align-items: flex-end; }
+  .m-box { max-height: 92vh; border-radius: 14px 14px 0 0; }
+
+  /* Auth box */
+  .auth-box { padding: 32px 22px; }
+
+  /* Header de tabla */
+  .t-top { flex-direction: column; align-items: flex-start; }
+  .ph-top { flex-direction: column; }
+
+  /* Sidebar más ancho en mobile para facilitar toque */
+  .sidebar { width: 270px; }
+}
+
+@media(max-width: 400px) {
+  .c-grid { grid-template-columns: 1fr; }
+  .page-title { font-size: 20px; }
+}
