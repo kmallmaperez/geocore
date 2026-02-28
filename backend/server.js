@@ -15,6 +15,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth',   authRoutes);
 app.use('/api/users',  usersRoutes);
 app.use('/api/tables', tablesRoutes);
+app.use('/api/export', exportRouter)
 app.use('/api/import', importRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date() }));

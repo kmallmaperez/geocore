@@ -4,8 +4,15 @@ import { DEFS, NUM_COLS } from '../utils/tableDefs'
 import { useAuth } from '../context/AuthContext'
 import RowModal from '../components/RowModal'
 import ImportModal from '../components/ImportModal'
+import ReporteModal from '../components/ReporteModal'
 import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
+
+// Tablas que tienen reporte WhatsApp
+const TIENE_REPORTE = new Set([
+  'perforacion','recepcion','recuperacion','fotografia',
+  'l_geotecnico','l_geologico','muestreo','corte','tormentas','envios'
+])
 
 export default function TablePage() {
   const { tkey }        = useParams()
@@ -18,6 +25,7 @@ export default function TablePage() {
   const [loading,   setLoading]   = useState(true)
   const [modal,     setModal]     = useState(null)
   const [importing, setImporting] = useState(false)
+  const [reporte,   setReporte]   = useState(null) // row para reporte WA
   const [search,    setSearch]    = useState('')
   const [filterD,   setFilterD]   = useState('')
 
@@ -69,29 +77,31 @@ export default function TablePage() {
 
   if (!def) return <div className="page-title">Tabla no encontrada</div>
 
-  const canWrite  = user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey)
-  const canImport = user.role === 'ADMIN'
+  const canWrite      = user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey)
+  const canImport     = user.role === 'ADMIN'
+  const tieneReporte  = TIENE_REPORTE.has(tkey)
 
   return (
     <div>
       <Toast msg={toast?.msg} type={toast?.type} />
 
-      {/* Header con título y botones */}
       <div style={{ marginBottom: 14 }}>
         <div className="page-title">{def.label}</div>
         <div className="page-desc">{filtered.length} registros</div>
       </div>
 
-      {/* Botones de acción — apilados en mobile */}
+      {/* Botones de acción */}
       <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
         {canWrite && (
-          <button className="btn btn-acc" style={{ width:'100%', padding:'13px', fontSize:14, borderRadius:10, justifyContent:'center' }}
+          <button className="btn btn-acc"
+            style={{ width:'100%', padding:'13px', fontSize:14, borderRadius:10, justifyContent:'center' }}
             onClick={() => setModal('new')}>
             ＋ Nuevo registro
           </button>
         )}
         {canImport && (
-          <button className="btn btn-blu" style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
+          <button className="btn btn-blu"
+            style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
             onClick={() => setImporting(true)}>
             📥 Importar CSV
           </button>
@@ -100,33 +110,29 @@ export default function TablePage() {
 
       {/* Filtros */}
       <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
-        <input
-          className="s-inp"
+        <input className="s-inp"
           style={{ width:'100%', fontSize:16, padding:'12px 14px', minHeight:46, borderRadius:10 }}
           placeholder={`🔍 Buscar en ${def.label}...`}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={search} onChange={e => setSearch(e.target.value)}
         />
         {ddhids.length > 0 && (
-          <select
-            className="sel-x"
+          <select className="sel-x"
             style={{ width:'100%', fontSize:16, padding:'12px 14px', minHeight:46, borderRadius:10 }}
-            value={filterD}
-            onChange={e => setFilterD(e.target.value)}
-          >
+            value={filterD} onChange={e => setFilterD(e.target.value)}>
             <option value="">Todos los DDHID</option>
             {ddhids.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         )}
         {(search || filterD) && (
-          <button className="btn btn-out" style={{ width:'100%', padding:'10px', borderRadius:10 }}
+          <button className="btn btn-out"
+            style={{ width:'100%', padding:'10px', borderRadius:10 }}
             onClick={() => { setSearch(''); setFilterD('') }}>
             ✕ Limpiar filtros
           </button>
         )}
       </div>
 
-      {/* Tabla con scroll horizontal */}
+      {/* Tabla */}
       <div className="t-wrap">
         <div className="ox">
           <table className="tbl">
@@ -134,34 +140,43 @@ export default function TablePage() {
               <tr>
                 <th>#</th>
                 {def.cols.map(c => <th key={c}>{c}</th>)}
-                {canWrite && <th>Acc.</th>}
+                <th>Acc.</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={def.cols.length + (canWrite?2:1)} className="no-data">Cargando...</td></tr>
+                <tr><td colSpan={def.cols.length + 2} className="no-data">Cargando...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={def.cols.length + (canWrite?2:1)} className="no-data">Sin registros</td></tr>
+                <tr><td colSpan={def.cols.length + 2} className="no-data">Sin registros</td></tr>
               ) : filtered.map((row, idx) => (
                 <tr key={row.id}>
                   <td style={{ color:'var(--mut)', fontSize:11 }}>{idx+1}</td>
                   {def.cols.map(c => (
                     <td key={c}>
                       {NUM_COLS.has(c) && row[c] !== undefined && row[c] !== null && row[c] !== ''
-                        ? parseFloat(row[c]).toLocaleString()
+                        ? parseFloat(row[c]).toLocaleString('es-PE')
                         : row[c] ?? '—'}
                     </td>
                   ))}
-                  {canWrite && (
-                    <td>
-                      <div style={{ display:'flex', gap:5 }}>
+                  <td>
+                    <div style={{ display:'flex', gap:4 }}>
+                      {/* Botón reporte WhatsApp */}
+                      {tieneReporte && (
+                        <button className="btn btn-grn btn-sm" title="Copiar reporte WhatsApp"
+                          onClick={() => setReporte(row)}>
+                          📋
+                        </button>
+                      )}
+                      {/* Editar */}
+                      {canWrite && (
                         <button className="btn btn-blu btn-sm" onClick={() => setModal(row)}>✎</button>
-                        {user.role !== 'USER' && (
-                          <button className="btn btn-red btn-sm" onClick={() => handleDelete(row)}>✕</button>
-                        )}
-                      </div>
-                    </td>
-                  )}
+                      )}
+                      {/* Eliminar */}
+                      {canWrite && user.role !== 'USER' && (
+                        <button className="btn btn-red btn-sm" onClick={() => handleDelete(row)}>✕</button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -169,12 +184,16 @@ export default function TablePage() {
         </div>
       </div>
 
+      {/* Modales */}
       {modal && (
         <RowModal tkey={tkey} onClose={() => setModal(null)} onSave={handleSave}
           initData={modal === 'new' ? null : modal} existingRows={rows} ddhids={ddhids} />
       )}
       {importing && (
         <ImportModal tkey={tkey} def={def} onClose={() => setImporting(false)} onImport={handleImport} />
+      )}
+      {reporte && (
+        <ReporteModal tkey={tkey} row={reporte} onClose={() => setReporte(null)} />
       )}
     </div>
   )
