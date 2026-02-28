@@ -65,7 +65,7 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
       const pct  = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
       const estadoCalc = pct >= 100 ? 'Completado' : pct > 0 ? 'En Proceso' : 'Pendiente'
       return {
-        DDHID:        p.DDHID, EQUIPO: mp[0]?.EQUIPO || '—',
+        DDHID:        p.DDHID, EQUIPO: p.EQUIPO || '',
         PLATAFORMA:   p.PLATAFORMA, PROGRAMADO: p.LENGTH,
         EJECUTADO:    parseFloat(ej.toFixed(1)), ESTADO: overrides[p.DDHID] || estadoCalc,
         FECHA_INICIO: fechas[0] || '—', FECHA_FIN: fechas[fechas.length-1] || '—',
@@ -73,6 +73,19 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
       }
     })
     res.json(resumen)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+
+// PUT /api/tables/resumen/equipo — actualiza EQUIPO en programa_general
+router.put('/resumen/equipo', authMiddleware, async (req, res) => {
+  if (!['ADMIN','SUPERVISOR'].includes(req.user.role))
+    return res.status(403).json({ error: 'Sin permisos' })
+  const { DDHID, EQUIPO } = req.body
+  if (!DDHID) return res.status(400).json({ error: 'DDHID requerido' })
+  try {
+    await db.query(`UPDATE programa_general SET "EQUIPO"=$1 WHERE "DDHID"=$2`, [EQUIPO || '', DDHID])
+    res.json({ success: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 

@@ -6,7 +6,7 @@ const router = express.Router()
 
 // Tablas y sus columnas en orden
 const TABLES = {
-  programa_general: ['PLATAFORMA','DDHID','ESTE','NORTE','ELEV','LENGTH'],
+  programa_general: ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
   perforacion:      ['DDHID','Fecha','From_Dia','TO_Dia','Turno_Dia','From_Noche','To_Noche','Turno_Noche','Total_Dia','Acumulado','Comentarios','Geologo'],
   recepcion:        ['Fecha','HORA','DDHID','FROM','TO','Metros','CAJAS','Geologo'],
   recuperacion:     ['Fecha','DDHID','From','To','Avance','Geologo'],
@@ -37,12 +37,13 @@ router.get('/all', authMiddleware, requireRole('ADMIN', 'SUPERVISOR'), async (re
 router.get('/resumen', authMiddleware, async (req, res) => {
   try {
     const pg = await db.query('SELECT * FROM programa_general')
-    const perf = await db.query('SELECT DDHID, SUM(Total_Dia) as ejecutado, MIN(Fecha) as f_inicio, MAX(Fecha) as f_fin FROM perforacion GROUP BY DDHID')
+    // Usar comillas para respetar el case de las columnas
+    const perf = await db.query(`SELECT "DDHID", SUM("Total_Dia") as ejecutado, MIN("Fecha") as f_inicio, MAX("Fecha") as f_fin FROM perforacion GROUP BY "DDHID"`)
     const overrides = await db.query('SELECT ddhid, estado FROM estado_overrides')
     const ovMap = {}
     overrides.rows.forEach(o => { ovMap[o.ddhid] = o.estado })
     const perfMap = {}
-    perf.rows.forEach(p => { perfMap[p.ddhid] = p })
+    perf.rows.forEach(p => { perfMap[p.DDHID] = p })
 
     const rows = pg.rows
       .filter(r => r.DDHID && String(r.DDHID).trim() !== '')
@@ -51,10 +52,14 @@ router.get('/resumen', authMiddleware, async (req, res) => {
         const ejecutado = parseFloat(p.ejecutado || 0).toFixed(2)
         const programado = parseFloat(r.LENGTH || 0).toFixed(2)
         const pct = programado > 0 ? Math.round((ejecutado / programado) * 100) : 0
-        let estado = ovMap[r.DDHID] || (pct >= 100 ? 'Completado' : ejecutado > 0 ? 'En Proceso' : 'Pendiente')
+        const estado = ovMap[r.DDHID] || (pct >= 100 ? 'Completado' : parseFloat(ejecutado) > 0 ? 'En Proceso' : 'Pendiente')
         return {
-          DDHID: r.DDHID, EQUIPO: r.EQUIPO || '', PLATAFORMA: r.PLATAFORMA || '',
-          PROGRAMADO: programado, EJECUTADO: ejecutado, ESTADO: estado,
+          DDHID: r.DDHID,
+          EQUIPO: r.EQUIPO || '',
+          PLATAFORMA: r.PLATAFORMA || '',
+          PROGRAMADO: programado,
+          EJECUTADO: ejecutado,
+          ESTADO: estado,
           FECHA_INICIO: p.f_inicio ? String(p.f_inicio).slice(0,10) : '',
           FECHA_FIN: p.f_fin ? String(p.f_fin).slice(0,10) : '',
           PCT: pct

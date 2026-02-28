@@ -4,20 +4,21 @@ import { useAuth } from '../context/AuthContext'
 import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
 
-const ESTADOS = ['En Proceso','Completado']
+const ESTADOS = ['En Proceso','Completado','Pendiente']
 
 function SortIcon({ col, sortCol, sortDir }) {
   if (sortCol !== col) return <span style={{ color:'var(--brd)', marginLeft:3 }}>⇅</span>
   return <span style={{ color:'var(--acc)', marginLeft:3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
 }
 
-function EstadoCell({ row, canEdit, onUpdate }) {
+// Celda de ESTADO editable con dropdown
+function EstadoCell({ row, canEdit, onUpdateEstado }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(row.ESTADO)
 
   async function save() {
     if (val === row.ESTADO) { setEditing(false); return }
-    await onUpdate(row.DDHID, val)
+    await onUpdateEstado(row.DDHID, val)
     setEditing(false)
   }
 
@@ -44,17 +45,58 @@ function EstadoCell({ row, canEdit, onUpdate }) {
   )
 }
 
-// Columnas y cómo ordenarlas
+// Celda de EQUIPO editable con input de texto
+function EquipoCell({ row, canEdit, onUpdateEquipo }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(row.EQUIPO || '')
+
+  async function save() {
+    if (val === (row.EQUIPO || '')) { setEditing(false); return }
+    await onUpdateEquipo(row.DDHID, val)
+    setEditing(false)
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter') save()
+    if (e.key === 'Escape') { setVal(row.EQUIPO || ''); setEditing(false) }
+  }
+
+  if (!canEdit) return <span>{row.EQUIPO || <span style={{ color:'var(--brd)' }}>—</span>}</span>
+
+  if (editing) return (
+    <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={handleKey}
+        autoFocus
+        style={{ background:'var(--bg)', border:'1px solid var(--acc)', borderRadius:6, padding:'4px 8px', color:'var(--txt)', fontSize:12, width:100 }}
+        placeholder="Ej: Drillco 01"
+      />
+      <button className="btn btn-grn btn-sm" onClick={save}>✓</button>
+      <button className="btn btn-out btn-sm" onClick={() => { setVal(row.EQUIPO || ''); setEditing(false) }}>✕</button>
+    </div>
+  )
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}
+      onClick={() => setEditing(true)} title="Clic para editar equipo">
+      <span>{row.EQUIPO || <span style={{ color:'var(--mut)', fontSize:11 }}>Sin equipo</span>}</span>
+      <span style={{ fontSize:10, color:'var(--mut)' }}>✎</span>
+    </div>
+  )
+}
+
 const COLS = [
-  { key:'DDHID',       label:'DDHID',      type:'str' },
-  { key:'EQUIPO',      label:'EQUIPO',     type:'str' },
-  { key:'PLATAFORMA',  label:'PLATAFORMA', type:'str' },
-  { key:'PROGRAMADO',  label:'PROG.',      type:'num' },
-  { key:'EJECUTADO',   label:'EJEC.',      type:'num' },
-  { key:'ESTADO',      label:'ESTADO',     type:'str' },
-  { key:'FECHA_INICIO',label:'F_INICIO',   type:'str' },
-  { key:'FECHA_FIN',   label:'F_FIN',      type:'str' },
-  { key:'PCT',         label:'%',          type:'num' },
+  { key:'DDHID',       label:'DDHID',     type:'str' },
+  { key:'EQUIPO',      label:'EQUIPO',    type:'str' },
+  { key:'PLATAFORMA',  label:'PLAT.',     type:'str' },
+  { key:'PROGRAMADO',  label:'PROG. (m)', type:'num' },
+  { key:'EJECUTADO',   label:'EJEC. (m)', type:'num' },
+  { key:'ESTADO',      label:'ESTADO',    type:'str' },
+  { key:'FECHA_INICIO',label:'F_INICIO',  type:'str' },
+  { key:'FECHA_FIN',   label:'F_FIN',     type:'str' },
+  { key:'PCT',         label:'%',         type:'num' },
 ]
 
 export default function ResumenPage() {
@@ -67,12 +109,9 @@ export default function ResumenPage() {
   const canEdit = user.role === 'ADMIN' || user.role === 'SUPERVISOR'
 
   function fetchResumen() {
+    setLoading(true)
     api.get('/tables/resumen/general')
-      .then(r => {
-        // Solo filas con DDHID con valor
-        const filtrado = r.data.filter(x => x.DDHID && String(x.DDHID).trim() !== '')
-        setResumen(filtrado)
-      })
+      .then(r => setResumen(r.data.filter(x => x.DDHID && String(x.DDHID).trim() !== '')))
       .finally(() => setLoading(false))
   }
 
@@ -83,7 +122,6 @@ export default function ResumenPage() {
     else { setSortCol(col); setSortDir('asc') }
   }
 
-  // Ordenar
   const sorted = [...resumen].sort((a, b) => {
     const colDef = COLS.find(c => c.key === sortCol)
     let va = a[sortCol], vb = b[sortCol]
@@ -94,13 +132,25 @@ export default function ResumenPage() {
     return 0
   })
 
+  // Actualizar ESTADO (usa tabla estado_overrides existente)
   async function updateEstado(ddhid, estado) {
     try {
       await api.put('/tables/resumen/estado', { DDHID: ddhid, ESTADO: estado })
       setResumen(prev => prev.map(r => r.DDHID === ddhid ? { ...r, ESTADO: estado, _estadoManual: true } : r))
-      show(`${ddhid} → ${estado} ✓`)
+      show(`${ddhid} → Estado: ${estado} ✓`)
     } catch (err) {
       show(err.response?.data?.error || 'Error al actualizar estado', 'err')
+    }
+  }
+
+  // Actualizar EQUIPO (PUT directo a programa_general)
+  async function updateEquipo(ddhid, equipo) {
+    try {
+      await api.put('/tables/resumen/equipo', { DDHID: ddhid, EQUIPO: equipo })
+      setResumen(prev => prev.map(r => r.DDHID === ddhid ? { ...r, EQUIPO: equipo } : r))
+      show(`${ddhid} → Equipo: ${equipo || '(vacío)'} ✓`)
+    } catch (err) {
+      show(err.response?.data?.error || 'Error al actualizar equipo', 'err')
     }
   }
 
@@ -117,7 +167,11 @@ export default function ResumenPage() {
     const cols = ['#','DDHID','EQUIPO','PLATAFORMA','PROGRAMADO','EJECUTADO','ESTADO','FECHA_INICIO','FECHA_FIN','PCT']
     const lines = [
       cols.join(','),
-      ...sorted.map((r, i) => [i+1, r.DDHID, r.EQUIPO, r.PLATAFORMA, r.PROGRAMADO, r.EJECUTADO, r.ESTADO, r.FECHA_INICIO, r.FECHA_FIN, r.PCT+'%'].map(v => `"${v}"`).join(','))
+      ...sorted.map((r, i) => [
+        i+1, r.DDHID, r.EQUIPO||'', r.PLATAFORMA||'',
+        r.PROGRAMADO, r.EJECUTADO, r.ESTADO,
+        r.FECHA_INICIO||'', r.FECHA_FIN||'', r.PCT+'%'
+      ].map(v => `"${v}"`).join(','))
     ]
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([bom + lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }))
@@ -132,9 +186,9 @@ export default function ResumenPage() {
       <div className="page-desc">{sorted.length} sondajes · Clic en columna para ordenar</div>
 
       {canEdit && (
-        <div className="alert a-warn">
-          ✎ Clic sobre el <strong>ESTADO</strong> para cambiarlo.
-          Los marcados con <span style={{color:'var(--acc)'}}>★</span> tienen estado manual — usa <strong>↺</strong> para revertir.
+        <div className="alert a-warn" style={{ marginBottom:14 }}>
+          ✎ Clic sobre <strong>EQUIPO</strong> o <strong>ESTADO</strong> para editarlos directamente.
+          Los estados marcados con <span style={{color:'var(--acc)'}}>★</span> son manuales — usa <strong>↺</strong> para revertir al automático.
         </div>
       )}
 
@@ -162,16 +216,20 @@ export default function ResumenPage() {
               {loading ? (
                 <tr><td colSpan={canEdit ? 11 : 10} className="no-data">Cargando...</td></tr>
               ) : sorted.length === 0 ? (
-                <tr><td colSpan={canEdit ? 11 : 10} className="no-data">Sin datos — agrega registros en Programa General con DDHID</td></tr>
+                <tr><td colSpan={canEdit ? 11 : 10} className="no-data">Sin datos — agrega sondajes en Programa General</td></tr>
               ) : sorted.map((r, i) => (
                 <tr key={r.DDHID}>
                   <td style={{ color:'var(--mut)', fontSize:11 }}>{i+1}</td>
                   <td><strong>{r.DDHID}</strong></td>
-                  <td>{r.EQUIPO}</td>
+                  <td>
+                    <EquipoCell row={r} canEdit={canEdit} onUpdateEquipo={updateEquipo} />
+                  </td>
                   <td>{r.PLATAFORMA}</td>
                   <td>{r.PROGRAMADO}m</td>
                   <td>{r.EJECUTADO}m</td>
-                  <td><EstadoCell row={r} canEdit={canEdit} onUpdate={updateEstado} /></td>
+                  <td>
+                    <EstadoCell row={r} canEdit={canEdit} onUpdateEstado={updateEstado} />
+                  </td>
                   <td>{r.FECHA_INICIO}</td>
                   <td>{r.FECHA_FIN}</td>
                   <td>
