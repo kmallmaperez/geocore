@@ -32,6 +32,42 @@ router.get('/all', authMiddleware, requireRole('ADMIN', 'SUPERVISOR'), async (re
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+
+// GET /api/export/resumen  → Resumen General calculado
+router.get('/resumen', authMiddleware, async (req, res) => {
+  try {
+    const pg = await db.query('SELECT * FROM programa_general')
+    const perf = await db.query('SELECT DDHID, SUM(Total_Dia) as ejecutado, MIN(Fecha) as f_inicio, MAX(Fecha) as f_fin FROM perforacion GROUP BY DDHID')
+    const overrides = await db.query('SELECT ddhid, estado FROM estado_overrides')
+    const ovMap = {}
+    overrides.rows.forEach(o => { ovMap[o.ddhid] = o.estado })
+    const perfMap = {}
+    perf.rows.forEach(p => { perfMap[p.ddhid] = p })
+
+    const rows = pg.rows
+      .filter(r => r.DDHID && String(r.DDHID).trim() !== '')
+      .map(r => {
+        const p = perfMap[r.DDHID] || {}
+        const ejecutado = parseFloat(p.ejecutado || 0).toFixed(2)
+        const programado = parseFloat(r.LENGTH || 0).toFixed(2)
+        const pct = programado > 0 ? Math.round((ejecutado / programado) * 100) : 0
+        let estado = ovMap[r.DDHID] || (pct >= 100 ? 'Completado' : ejecutado > 0 ? 'En Proceso' : 'Pendiente')
+        return {
+          DDHID: r.DDHID, EQUIPO: r.EQUIPO || '', PLATAFORMA: r.PLATAFORMA || '',
+          PROGRAMADO: programado, EJECUTADO: ejecutado, ESTADO: estado,
+          FECHA_INICIO: p.f_inicio ? String(p.f_inicio).slice(0,10) : '',
+          FECHA_FIN: p.f_fin ? String(p.f_fin).slice(0,10) : '',
+          PCT: pct
+        }
+      })
+
+    res.json({
+      cols: ['DDHID','EQUIPO','PLATAFORMA','PROGRAMADO','EJECUTADO','ESTADO','FECHA_INICIO','FECHA_FIN','PCT'],
+      rows
+    })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
 // GET /api/export/:table  → JSON de una tabla
 router.get('/:table', authMiddleware, async (req, res) => {
   const table = req.params.table
@@ -44,3 +80,4 @@ router.get('/:table', authMiddleware, async (req, res) => {
 })
 
 module.exports = router
+
