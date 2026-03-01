@@ -49,6 +49,7 @@ function EstadoCell({ row, canEdit, onUpdateEstado }) {
 // Para agregar más equipos, añade el nombre entre comillas en esta lista:
 const EQUIPOS = [
   'HYDX-5A-05',
+  'HYDX-5A-06',
   'HYDX-5A-07',
   'YN-1500',
   // 'NUEVO-EQUIPO-01',  ← descomenta y edita para agregar más
