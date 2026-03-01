@@ -45,7 +45,17 @@ function EstadoCell({ row, canEdit, onUpdateEstado }) {
   )
 }
 
-// Celda de EQUIPO editable con input de texto
+// ── EQUIPOS DISPONIBLES ─────────────────────────────────────────
+// Para agregar más equipos, añade el nombre entre comillas en esta lista:
+const EQUIPOS = [
+  'HYDX-5A-05',
+  'HYDX-5A-07',
+  'YN-1500',
+  // 'NUEVO-EQUIPO-01',  ← descomenta y edita para agregar más
+]
+// ────────────────────────────────────────────────────────────────
+
+// Celda de EQUIPO editable con dropdown
 function EquipoCell({ row, canEdit, onUpdateEquipo }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(row.EQUIPO || '')
@@ -56,23 +66,19 @@ function EquipoCell({ row, canEdit, onUpdateEquipo }) {
     setEditing(false)
   }
 
-  function handleKey(e) {
-    if (e.key === 'Enter') save()
-    if (e.key === 'Escape') { setVal(row.EQUIPO || ''); setEditing(false) }
-  }
-
-  if (!canEdit) return <span>{row.EQUIPO || <span style={{ color:'var(--brd)' }}>—</span>}</span>
+  if (!canEdit) return <span>{row.EQUIPO || <span style={{ color:'var(--mut)', fontSize:11 }}>—</span>}</span>
 
   if (editing) return (
     <div style={{ display:'flex', gap:4, alignItems:'center' }}>
-      <input
+      <select
         value={val}
         onChange={e => setVal(e.target.value)}
-        onKeyDown={handleKey}
         autoFocus
-        style={{ background:'var(--bg)', border:'1px solid var(--acc)', borderRadius:6, padding:'4px 8px', color:'var(--txt)', fontSize:12, width:100 }}
-        placeholder="Ej: Drillco 01"
-      />
+        style={{ background:'var(--bg)', border:'1px solid var(--acc)', borderRadius:6, padding:'4px 8px', color:'var(--txt)', fontSize:12 }}
+      >
+        <option value="">— Sin equipo —</option>
+        {EQUIPOS.map(e => <option key={e} value={e}>{e}</option>)}
+      </select>
       <button className="btn btn-grn btn-sm" onClick={save}>✓</button>
       <button className="btn btn-out btn-sm" onClick={() => { setVal(row.EQUIPO || ''); setEditing(false) }}>✕</button>
     </div>
@@ -80,7 +86,7 @@ function EquipoCell({ row, canEdit, onUpdateEquipo }) {
 
   return (
     <div style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}
-      onClick={() => setEditing(true)} title="Clic para editar equipo">
+      onClick={() => { setVal(row.EQUIPO || ''); setEditing(true) }} title="Clic para editar equipo">
       <span>{row.EQUIPO || <span style={{ color:'var(--mut)', fontSize:11 }}>Sin equipo</span>}</span>
       <span style={{ fontSize:10, color:'var(--mut)' }}>✎</span>
     </div>

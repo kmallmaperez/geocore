@@ -66,6 +66,11 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
       onBlur: () => setTouched(p => ({ ...p, [col]: true })),
     }
     if (col === 'DDHID' || col === 'Sondaje') {
+      // Programa General: texto libre (es la tabla origen de los sondajes)
+      if (tkey === 'programa_general') {
+        return <input type="text" placeholder="Ej: MR26004-11" {...base} />
+      }
+      // Resto de tablas: dropdown con sondajes de Programa General
       return (
         <select {...base}>
           <option value="">— Seleccionar DDHID —</option>
