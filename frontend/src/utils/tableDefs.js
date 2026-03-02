@@ -263,7 +263,14 @@ export function computeAuto(tkey, form) {
 }
 
 // Helpers UI
-export function today() { return new Date().toISOString().split('T')[0] }
+export function today() {
+  // Usar hora LOCAL para evitar que en Perú (UTC-5) aparezca el día siguiente
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 // Convierte YYYY-MM-DD (o timestamp ISO) → DD/MM/YYYY para mostrar en tablas
 // Si el valor no es fecha reconocible lo devuelve tal cual

@@ -17,10 +17,25 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
     Horas: { label: 'Horas (auto)', hint: 'Minutos ÷ 60' },
   }
 
+  const DATE_FIELDS = ['Fecha','F_Envio','F_Solicitud','F_Resultados']
+
+  // Limpia fechas ISO a YYYY-MM-DD puro para que el input type="date" funcione
+  function cleanDate(v) {
+    if (!v) return ''
+    const s = String(v)
+    // Si viene como ISO timestamp (2026-03-02T00:00:00.000Z) tomar solo YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+    return v
+  }
+
   const buildInit = () => {
     const f = {}
     formCols.forEach(c => {
-      f[c] = initData ? (initData[c] ?? '') : (c === 'Fecha' ? today() : c === 'HORA' ? new Date().toTimeString().slice(0,5) : '')
+      if (initData) {
+        f[c] = DATE_FIELDS.includes(c) ? cleanDate(initData[c]) : (initData[c] ?? '')
+      } else {
+        f[c] = DATE_FIELDS.includes(c) ? today() : c === 'HORA' ? new Date().toTimeString().slice(0,5) : ''
+      }
     })
     return f
   }
