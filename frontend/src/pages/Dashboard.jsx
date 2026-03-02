@@ -36,11 +36,14 @@ export default function Dashboard() {
   const [serieIdeal,  setSerieIdeal]  = useState([])
   const [fechasSerie, setFechasSerie] = useState([])
   const [perfDia,     setPerfDia]     = useState([])
+  const [porMaquina,  setPorMaquina]  = useState([]) // [{equipo, ddhid, datos:[{fecha,dia,noche}]}]
 
   const crAcum   = useRef(null); const ciAcum   = useRef(null)
   const crDia    = useRef(null); const ciDia    = useRef(null)
   const crSondaj = useRef(null); const ciSondaj = useRef(null)
-  const sondajWrap = useRef(null) // para auto-scroll
+  const sondajWrap = useRef(null)
+  const maquinaRefs = useRef({}) // canvas refs por máquina
+  const maquinaCharts = useRef({}) // chart instances por máquina
 
   // ── Carga de datos ───────────────────────────────────────────────
   useEffect(() => {
@@ -78,6 +81,33 @@ export default function Dashboard() {
       setPerfDia(sorted)
     }).catch(() => {})
   }, [])
+
+  // Cargar datos por máquina (sondajes en proceso)
+  useEffect(() => {
+    if (!porSondaje.length) return
+    // Tomar solo los "En Proceso" con equipo asignado
+    const enProceso = porSondaje.filter(s => s.ESTADO !== 'Completado' && s.EQUIPO)
+
+    api.get('/tables/perforacion').then(r => {
+      const perf = r.data
+      const grupos = {}
+      enProceso.forEach(s => {
+        const key = `${s.EQUIPO}||${s.DDHID}`
+        const rows = perf.filter(p => p.DDHID === s.DDHID)
+        const byDate = {}
+        rows.forEach(p => {
+          const f = p.Fecha ? String(p.Fecha).slice(0,10) : null
+          if (!f || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return
+          if (!byDate[f]) byDate[f] = { dia:0, noche:0 }
+          byDate[f].dia   += parseFloat(p.Turno_Dia)   || 0
+          byDate[f].noche += parseFloat(p.Turno_Noche) || 0
+        })
+        const datos = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))
+        if (datos.length) grupos[key] = { equipo: s.EQUIPO, ddhid: s.DDHID, datos }
+      })
+      setPorMaquina(Object.values(grupos))
+    }).catch(() => {})
+  }, [porSondaje])
 
   // ── Gráfico 1: Acumulado real vs ideal (líneas) ─────────────────
   useEffect(() => {
@@ -130,7 +160,14 @@ export default function Dashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: LEGEND_OPTS,
-          tooltip: { callbacks: { footer: items => `Total: ${items.reduce((s,i)=>s+i.parsed.y,0).toFixed(2)} m` } }
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(2)} m`,
+              footer: (items) => `  Total: ${items.reduce((s,i)=>s+i.parsed.y,0).toFixed(2)} m`
+            }
+          }
         },
         scales: {
           x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
@@ -187,6 +224,83 @@ export default function Dashboard() {
   }, [porSondaje])
 
   // ── Tarjetas ─────────────────────────────────────────────────────
+  // Gráficos por máquina — se crean dinámicamente
+  useEffect(() => {
+    porMaquina.forEach(({ equipo, ddhid, datos }) => {
+      const key = `${equipo}||${ddhid}`
+      const canvas = maquinaRefs.current[key]
+      if (!canvas) return
+      if (maquinaCharts.current[key]) { maquinaCharts.current[key].destroy() }
+      maquinaCharts.current[key] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: datos.map(([f]) => fmtFecha(f)),
+          datasets: [
+            { label:'☀ Turno Día',    data: datos.map(([,v]) => +v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
+            { label:'🌙 Turno Noche', data: datos.map(([,v]) => +v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: LEGEND_OPTS,
+            tooltip: {
+              mode: 'index', intersect: false,
+              callbacks: {
+                label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(2)} m`,
+                footer: (items) => `  Total: ${items.reduce((s,i)=>s+i.parsed.y,0).toFixed(2)} m`
+              }
+            }
+          },
+          scales: {
+            x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
+            y: { stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
+          }
+        }
+      })
+    })
+    return () => {
+      Object.values(maquinaCharts.current).forEach(c => c?.destroy())
+      maquinaCharts.current = {}
+    }
+  }, [porMaquina])
+
+  // ── Descargas CSV ──────────────────────────────────────────────
+  function downloadChartCSV(real, ideal, fechas) {
+    const bom = '\uFEFF'
+    const rows = [
+      ['Fecha','Real_Acumulado_m','Ideal_Acumulado_m'],
+      ...fechas.map((f, i) => [
+        fmtFecha(f),
+        real[i]?.valor ?? '',
+        ideal[i]?.valor ?? ''
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\r\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([bom + csv], { type:'text/csv;charset=utf-8;' }))
+    a.download = `Acumulado_vs_Ideal_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
+
+  function downloadMaquinaCSV(equipo, ddhid, datos) {
+    const bom = '\uFEFF'
+    const rows = [
+      ['Fecha','Turno_Dia_m','Turno_Noche_m','Total_m'],
+      ...datos.map(([f, v]) => [
+        fmtFecha(f),
+        v.dia.toFixed(2),
+        v.noche.toFixed(2),
+        (v.dia + v.noche).toFixed(2)
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\r\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([bom + csv], { type:'text/csv;charset=utf-8;' }))
+    a.download = `Perforacion_${equipo}_${ddhid}_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
+
   const CARDS = [
     { lbl:'Perforado',     val: stats.perforado,    color: C.perf.bd,  icon:'⛏' },
     { lbl:'Recuperado',    val: stats.recuperado,   color: C.recup.bd, icon:'🧪' },
@@ -216,7 +330,12 @@ export default function Dashboard() {
 
       {/* ── Gráfico acumulado real vs ideal (ancho completo) ── */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">📈 Acumulado real vs ideal (35m/día × máquinas activas)</div>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+          <div className="ch-title" style={{ margin:0 }}>📈 Acumulado real vs ideal (35m/día × máquinas activas)</div>
+          <button className="btn btn-grn btn-sm" onClick={() => downloadChartCSV(serieReal, serieIdeal, fechasSerie)}>
+            ⬇ CSV
+          </button>
+        </div>
         <div style={{ height:240 }}>
           <canvas ref={crAcum} />
         </div>
@@ -242,6 +361,35 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Gráficos por máquina (sondajes en proceso) ── */}
+      {porMaquina.length > 0 && (
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontWeight:700, fontSize:14, color:'var(--mut)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:10 }}>
+            ⛏ Perforación por máquina — sondajes en proceso
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(340px,1fr))', gap:14 }}>
+            {porMaquina.map(({ equipo, ddhid, datos }) => {
+              const key = `${equipo}||${ddhid}`
+              return (
+                <div key={key} className="ch-card">
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                    <div className="ch-title" style={{ margin:0 }}>
+                      🔧 {equipo} — <span style={{ color:'var(--acc)' }}>{ddhid}</span>
+                    </div>
+                    <button className="btn btn-grn btn-sm" onClick={() => downloadMaquinaCSV(equipo, ddhid, datos)}>
+                      ⬇ CSV
+                    </button>
+                  </div>
+                  <div style={{ height:200 }}>
+                    <canvas ref={el => { maquinaRefs.current[key] = el }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Tabla resumen completo por sondaje ── */}
       {user.role !== 'USER' && porSondaje.length > 0 && (
