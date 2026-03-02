@@ -126,20 +126,50 @@ export function validateClient(tkey, form, existingRows = [], editId = null) {
     }
   })
 
-  // 2. Perforación: validación especial de turnos (FROM <= TO, vacíos permitidos)
+  // 2. Perforación: validación turnos + traslapes
   if (tkey === 'perforacion') {
-    const fd = form.From_Dia, td = form.TO_Dia
-    const fn = form.From_Noche, tn = form.To_Noche
-    // Solo validar si AMBOS campos tienen valor
-    if (fd !== '' && fd !== undefined && td !== '' && td !== undefined) {
-      const fv = parseFloat(fd), tv = parseFloat(td)
-      if (!isNaN(fv) && !isNaN(tv) && fv > tv)
-        errors.TO_Dia = `TO_Día (${tv}) debe ser ≥ From_Día (${fv})`
+    const fd = parseFloat(form.From_Dia),  td = parseFloat(form.TO_Dia)
+    const fn = parseFloat(form.From_Noche), tn = parseFloat(form.To_Noche)
+    const hasDia   = !isNaN(fd) && !isNaN(td)   && form.From_Dia !== '' && form.TO_Dia !== ''
+    const hasNoche = !isNaN(fn) && !isNaN(tn) && form.From_Noche !== '' && form.To_Noche !== ''
+
+    // A. From <= To dentro de cada turno
+    if (hasDia   && fd > td) errors.TO_Dia    = `TO_Día (${td}) debe ser ≥ From_Día (${fd})`
+    if (hasNoche && fn > tn) errors.To_Noche  = `To_Noche (${tn}) debe ser ≥ From_Noche (${fn})`
+
+    // B. Traslape entre Turno Día y Turno Noche del mismo registro
+    if (hasDia && hasNoche && fd < td && fn < tn && !errors.TO_Dia && !errors.To_Noche) {
+      if (fd < tn && td > fn) {
+        errors.From_Noche = `Traslape entre Turno Día (${fd}–${td}) y Turno Noche (${fn}–${tn})`
+      }
     }
-    if (fn !== '' && fn !== undefined && tn !== '' && tn !== undefined) {
-      const fv = parseFloat(fn), tv = parseFloat(tn)
-      if (!isNaN(fv) && !isNaN(tv) && fv > tv)
-        errors.To_Noche = `To_Noche (${tv}) debe ser ≥ From_Noche (${fv})`
+
+    // C. Traslape con registros históricos del mismo DDHID
+    if (!errors.From_Dia && !errors.From_Noche && !errors.TO_Dia && !errors.To_Noche) {
+      const historico = existingRows.filter(r => r.DDHID === form.DDHID && r.id !== editId)
+      for (const r of historico) {
+        const rfd = parseFloat(r.From_Dia),  rtd = parseFloat(r.TO_Dia)
+        const rfn = parseFloat(r.From_Noche), rtn = parseFloat(r.To_Noche)
+        const rHasDia   = !isNaN(rfd) && !isNaN(rtd) && rfd < rtd
+        const rHasNoche = !isNaN(rfn) && !isNaN(rtn) && rfn < rtn
+
+        if (hasDia && fd < td && rHasDia && fd < rtd && td > rfd) {
+          errors.From_Dia = `Traslape Turno Día (${fd}–${td}) con registro existente (${rfd}–${rtd}) en ${form.DDHID}`
+          break
+        }
+        if (hasNoche && fn < tn && rHasNoche && fn < rtn && tn > rfn) {
+          errors.From_Noche = `Traslape Turno Noche (${fn}–${tn}) con registro existente (${rfn}–${rtn}) en ${form.DDHID}`
+          break
+        }
+        if (hasDia && fd < td && rHasNoche && fd < rtn && td > rfn) {
+          errors.From_Dia = `Traslape Turno Día (${fd}–${td}) con Turno Noche histórico (${rfn}–${rtn}) en ${form.DDHID}`
+          break
+        }
+        if (hasNoche && fn < tn && rHasDia && fn < rtd && tn > rfd) {
+          errors.From_Noche = `Traslape Turno Noche (${fn}–${tn}) con Turno Día histórico (${rfd}–${rtd}) en ${form.DDHID}`
+          break
+        }
+      }
     }
   }
 

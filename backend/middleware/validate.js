@@ -40,30 +40,84 @@ function validateRow(tableName, row, existingRows = [], editId = null) {
       errors.push({ field, message: `"${field}" es obligatorio` })
   })
 
-  // 2. Perforación: From_Dia <= TO_Dia y From_Noche <= To_Noche
-  //    Vacíos = permitidos (no se perforó ese turno)
-  //    Iguales = permitidos (avance 0)
+  // 2. Perforación: validaciones de turnos + traslapes
   if (tableName === 'perforacion') {
     const fd = parseFloat(row.From_Dia),  td = parseFloat(row.TO_Dia)
     const fn = parseFloat(row.From_Noche), tn = parseFloat(row.To_Noche)
+    const hasDia   = hasValue(row.From_Dia)   && hasValue(row.TO_Dia)   && !isNaN(fd) && !isNaN(td)
+    const hasNoche = hasValue(row.From_Noche) && hasValue(row.To_Noche) && !isNaN(fn) && !isNaN(tn)
 
-    if (hasValue(row.From_Dia) && hasValue(row.TO_Dia)) {
-      if (!isNaN(fd) && !isNaN(td)) {
-        if (fd > td) errors.push({ field:'TO_Dia', message:`TO_Día (${td}) debe ser ≥ From_Día (${fd})` })
-        else row.Turno_Dia = parseFloat((td - fd).toFixed(2))
+    // A. From <= To dentro de cada turno
+    if (hasDia) {
+      if (fd > td)
+        errors.push({ field:'TO_Dia', message:`TO_Día (${td}) debe ser ≥ From_Día (${fd})` })
+      else
+        row.Turno_Dia = parseFloat((td - fd).toFixed(2))
+    }
+    if (hasNoche) {
+      if (fn > tn)
+        errors.push({ field:'To_Noche', message:`To_Noche (${tn}) debe ser ≥ From_Noche (${fn})` })
+      else
+        row.Turno_Noche = parseFloat((tn - fn).toFixed(2))
+    }
+
+    // B. Traslape entre turno DÍA y turno NOCHE del mismo registro
+    if (hasDia && hasNoche && fd < td && fn < tn) {
+      // Se superponen si los intervalos [fd,td] y [fn,tn] se cruzan
+      if (fd < tn && td > fn) {
+        errors.push({
+          field: 'From_Noche',
+          message: `Traslape entre Turno Día (${fd}–${td}) y Turno Noche (${fn}–${tn}) en el mismo reporte`
+        })
       }
     }
-    if (hasValue(row.From_Noche) && hasValue(row.To_Noche)) {
-      if (!isNaN(fn) && !isNaN(tn)) {
-        if (fn > tn) errors.push({ field:'To_Noche', message:`To_Noche (${tn}) debe ser ≥ From_Noche (${fn})` })
-        else row.Turno_Noche = parseFloat((tn - fn).toFixed(2))
+
+    // C. Traslape con registros históricos del mismo sondaje
+    if (errors.length === 0) {
+      const historico = existingRows.filter(r => r.DDHID === row.DDHID && r.id !== editId)
+      for (const r of historico) {
+        const rfd = parseFloat(r.From_Dia),  rtd = parseFloat(r.TO_Dia)
+        const rfn = parseFloat(r.From_Noche), rtn = parseFloat(r.To_Noche)
+        const rHasDia   = !isNaN(rfd) && !isNaN(rtd) && rfd < rtd
+        const rHasNoche = !isNaN(rfn) && !isNaN(rtn) && rfn < rtn
+
+        // Día nuevo vs Día histórico
+        if (hasDia && fd < td && rHasDia) {
+          if (fd < rtd && td > rfd) {
+            errors.push({ field:'From_Dia', message:`Traslape Turno Día (${fd}–${td}) con registro existente (${rfd}–${rtd}) en ${row.DDHID}` })
+            break
+          }
+        }
+        // Noche nuevo vs Noche histórica
+        if (hasNoche && fn < tn && rHasNoche) {
+          if (fn < rtn && tn > rfn) {
+            errors.push({ field:'From_Noche', message:`Traslape Turno Noche (${fn}–${tn}) con registro existente (${rfn}–${rtn}) en ${row.DDHID}` })
+            break
+          }
+        }
+        // Día nuevo vs Noche histórica
+        if (hasDia && fd < td && rHasNoche) {
+          if (fd < rtn && td > rfn) {
+            errors.push({ field:'From_Dia', message:`Traslape Turno Día (${fd}–${td}) con Turno Noche histórico (${rfn}–${rtn}) en ${row.DDHID}` })
+            break
+          }
+        }
+        // Noche nuevo vs Día histórico
+        if (hasNoche && fn < tn && rHasDia) {
+          if (fn < rtd && tn > rfd) {
+            errors.push({ field:'From_Noche', message:`Traslape Turno Noche (${fn}–${tn}) con Turno Día histórico (${rfd}–${rtd}) en ${row.DDHID}` })
+            break
+          }
+        }
+        if (errors.length > 0) break
       }
     }
+
+    // D. Totales y acumulado (solo si no hay errores de traslape)
     const turnoD = parseFloat(row.Turno_Dia) || 0
     const turnoN = parseFloat(row.Turno_Noche) || 0
     row.Total_Dia = parseFloat((turnoD + turnoN).toFixed(2))
 
-    // Acumulado histórico
     const prev = existingRows
       .filter(r => r.DDHID === row.DDHID && r.id !== editId)
       .reduce((s, r) => s + (parseFloat(r.Total_Dia) || 0), 0)
