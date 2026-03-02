@@ -185,17 +185,20 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       acumReal += perfPorFecha[f]
       serieReal.push({ fecha: f, valor: parseFloat(acumReal.toFixed(1)) })
 
-      // Ideal: cuántas máquinas han iniciado hasta este día (incluyendo hoy)
-      // Una vez que una máquina inicia, se cuenta siempre aunque no reporte ese día
+      // Ideal: cuántas máquinas han iniciado hasta este día (acumulativo)
       const maqActivas = Object.values(equipoInicio).filter(ini => ini <= f).length
-      // Si arrancó una nueva máquina hoy, el acumulado ideal salta
-      // Sumamos 35 * maqActivas por cada día
       acumIdeal += 35 * maqActivas
-      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)) })
+      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)), maquinas: maqActivas })
       maqPrevias = maqActivas
     })
 
-    res.json({ porSondaje, totales, serieReal, serieIdeal, fechasOrdenadas })
+    // 2 últimos sondajes completados (por FECHA_FIN desc)
+    const completados = porSondaje
+      .filter(s => s.ESTADO === 'Completado' && s.FECHA_FIN)
+      .sort((a, b) => (b.FECHA_FIN||'').localeCompare(a.FECHA_FIN||''))
+      .slice(0, 2)
+
+    res.json({ porSondaje, totales, serieReal, serieIdeal, fechasOrdenadas, completadosRecientes: completados })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
