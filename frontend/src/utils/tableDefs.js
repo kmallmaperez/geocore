@@ -234,6 +234,22 @@ export function computeAuto(tkey, form) {
 
 // Helpers UI
 export function today() { return new Date().toISOString().split('T')[0] }
+
+// Convierte YYYY-MM-DD (o timestamp ISO) → DD/MM/YYYY para mostrar en tablas
+// Si el valor no es fecha reconocible lo devuelve tal cual
+export function fmtFecha(v) {
+  if (!v) return '—'
+  const s = String(v).slice(0, 10)           // toma solo YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return v  // no es fecha ISO, devuelve original
+  const [y, m, d] = s.split('-')
+  return `${d}/${m}/${y}`
+}
+
+// Columnas que contienen fechas (para renderizado en tabla)
+export const DATE_COLS = new Set([
+  'Fecha', 'F_Envio', 'F_Solicitud', 'F_Resultados',
+  'FECHA_INICIO', 'FECHA_FIN', 'created_at'
+])
 export function inits(n) { return n.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase() }
 export function roleCls(r) { return {ADMIN:'b-adm',SUPERVISOR:'b-sup',USER:'b-usr'}[r]||'b-usr' }
 export function statCls(s) { return s==='Completado'?'b-act':s==='En Progreso'?'b-pro':'b-pen' }

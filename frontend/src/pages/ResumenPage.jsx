@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { statCls } from '../utils/tableDefs'
+import { statCls, fmtFecha } from '../utils/tableDefs'
 import { useAuth } from '../context/AuthContext'
 import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
@@ -49,7 +49,6 @@ function EstadoCell({ row, canEdit, onUpdateEstado }) {
 // Para agregar más equipos, añade el nombre entre comillas en esta lista:
 const EQUIPOS = [
   'HYDX-5A-05',
-  'HYDX-5A-06',
   'HYDX-5A-07',
   'YN-1500',
   // 'NUEVO-EQUIPO-01',  ← descomenta y edita para agregar más
@@ -237,8 +236,8 @@ export default function ResumenPage() {
                   <td>
                     <EstadoCell row={r} canEdit={canEdit} onUpdateEstado={updateEstado} />
                   </td>
-                  <td>{r.FECHA_INICIO}</td>
-                  <td>{r.FECHA_FIN}</td>
+                  <td>{fmtFecha(r.FECHA_INICIO)}</td>
+                  <td>{fmtFecha(r.FECHA_FIN)}</td>
                   <td>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <div className="p-bar"><div className="p-fill" style={{ width:Math.min(r.PCT,100)+'%' }} /></div>

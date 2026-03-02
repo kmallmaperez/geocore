@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { DEFS, NUM_COLS } from '../utils/tableDefs'
+import { DEFS, NUM_COLS, DATE_COLS, fmtFecha } from '../utils/tableDefs'
 import { useAuth } from '../context/AuthContext'
 import RowModal from '../components/RowModal'
 import ImportModal from '../components/ImportModal'
@@ -181,7 +181,9 @@ export default function TablePage() {
                     <td key={c}>
                       {NUM_COLS.has(c) && row[c] !== undefined && row[c] !== null && row[c] !== ''
                         ? parseFloat(row[c]).toLocaleString('es-PE')
-                        : row[c] ?? '—'}
+                        : DATE_COLS.has(c)
+                          ? fmtFecha(row[c])
+                          : row[c] ?? '—'}
                     </td>
                   ))}
                   <td>

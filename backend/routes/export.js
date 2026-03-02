@@ -4,6 +4,15 @@ const { authMiddleware, requireRole } = require('../middleware/auth')
 
 const router = express.Router()
 
+// Formatea fecha ISO a DD/MM/YYYY
+function fmtFecha(v) {
+  if (!v) return ''
+  const s = String(v).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return v
+  const [y, m, d] = s.split('-')
+  return `${d}/${m}/${y}`
+}
+
 // Tablas y sus columnas en orden
 const TABLES = {
   programa_general: ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
@@ -60,8 +69,8 @@ router.get('/resumen', authMiddleware, async (req, res) => {
           PROGRAMADO: programado,
           EJECUTADO: ejecutado,
           ESTADO: estado,
-          FECHA_INICIO: p.f_inicio ? String(p.f_inicio).slice(0,10) : '',
-          FECHA_FIN: p.f_fin ? String(p.f_fin).slice(0,10) : '',
+          FECHA_INICIO: fmtFecha(p.f_inicio),
+          FECHA_FIN: fmtFecha(p.f_fin),
           PCT: pct
         }
       })

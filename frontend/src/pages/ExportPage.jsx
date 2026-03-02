@@ -31,7 +31,12 @@ async function loadXLSX() {
 
 function formatVal(v) {
   if (v === null || v === undefined) return ''
-  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10)
+  const s = String(v)
+  // Fechas ISO YYYY-MM-DD → DD/MM/YYYY
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [y, m, d] = s.slice(0, 10).split('-')
+    return `${d}/${m}/${y}`
+  }
   return v
 }
 
@@ -44,11 +49,9 @@ export default function ExportPage() {
     setLoading(true)
     try {
       const XLSX = await loadXLSX()
-      // Obtener todas las tablas + resumen
-      const [allData, resumenData] = await Promise.all([
-        api.get('/export/all').then(r => r.data),
-        api.get('/export/resumen').then(r => r.data),
-      ])
+      // Obtener todas las tablas + resumen (secuencial para mejor manejo de errores)
+      const allData = await api.get('/export/all').then(r => r.data)
+      const resumenData = await api.get('/export/resumen').then(r => r.data)
 
       const wb = XLSX.utils.book_new()
 
