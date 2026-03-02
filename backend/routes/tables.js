@@ -61,7 +61,16 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
     const resumen = prog.rows.map(p => {
       const mp   = perf.rows.filter(x => x.DDHID === p.DDHID)
       const ej   = mp.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
-      const fechas = mp.map(x => x.Fecha).filter(Boolean).map(f => String(f).slice(0,10)).sort()
+      const fechas = mp.map(x => x.Fecha).filter(Boolean).map(f => {
+        // PostgreSQL returns Date objects; convert to YYYY-MM-DD
+        if (f instanceof Date) {
+          const y = f.getUTCFullYear()
+          const m = String(f.getUTCMonth()+1).padStart(2,'0')
+          const d = String(f.getUTCDate()).padStart(2,'0')
+          return `${y}-${m}-${d}`
+        }
+        return String(f).slice(0,10)
+      }).sort()
       const pct  = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
       const estadoCalc = pct >= 100 ? 'Completado' : pct > 0 ? 'En Proceso' : 'Pendiente'
       return {
@@ -76,6 +85,119 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+
+
+// GET /api/tables/dashboard/stats — stats completos para dashboard y tabla resumen
+router.get('/dashboard/stats', authMiddleware, async (req, res) => {
+  try {
+    const [prog, perf, recep, recup, foto, geotec, geolog, ov] = await Promise.all([
+      db.query('SELECT * FROM programa_general'),
+      db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia" FROM perforacion ORDER BY "Fecha"'),
+      db.query('SELECT "DDHID", "Metros" FROM recepcion'),
+      db.query('SELECT "DDHID", "Avance" FROM recuperacion'),
+      db.query('SELECT "DDHID", "Avance" FROM fotografia'),
+      db.query('SELECT "DDHID", "Avance" FROM l_geotecnico'),
+      db.query('SELECT "DDHID", "Avance" FROM l_geologico'),
+      db.query('SELECT * FROM estado_overrides'),
+    ])
+
+    const overrides = {}
+    ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
+
+    // Suma por DDHID helper
+    function sumBy(rows, ddhid, col) {
+      return rows.filter(r => r.DDHID === ddhid).reduce((s, r) => s + (parseFloat(r[col]) || 0), 0)
+    }
+
+    // Tabla de resumen por sondaje
+    const porSondaje = prog.rows
+      .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
+      .map(p => {
+        const perfRows = perf.rows.filter(x => x.DDHID === p.DDHID)
+        const perfTotal = perfRows.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
+        const fechas = perfRows.map(x => x.Fecha).filter(Boolean).map(f => {
+          if (f instanceof Date) {
+            const y = f.getUTCFullYear(), m = String(f.getUTCMonth()+1).padStart(2,'0'), d = String(f.getUTCDate()).padStart(2,'0')
+            return `${y}-${m}-${d}`
+          }
+          return String(f).slice(0,10)
+        }).sort()
+        const pct = p.LENGTH > 0 ? Math.round(perfTotal / p.LENGTH * 100) : 0
+        const estadoCalc = pct >= 100 ? 'Completado' : perfTotal > 0 ? 'En Proceso' : 'Pendiente'
+        return {
+          DDHID: p.DDHID,
+          PROGRAMADO: parseFloat(p.LENGTH || 0),
+          PERFORADO:  parseFloat(perfTotal.toFixed(1)),
+          RECEPCION:  parseFloat(sumBy(recep.rows,  p.DDHID, 'Metros').toFixed(1)),
+          RECUPERADO: parseFloat(sumBy(recup.rows,  p.DDHID, 'Avance').toFixed(1)),
+          FOTOGRAFIADO: parseFloat(sumBy(foto.rows, p.DDHID, 'Avance').toFixed(1)),
+          GEOTECNICO: parseFloat(sumBy(geotec.rows, p.DDHID, 'Avance').toFixed(1)),
+          GEOLOGICO:  parseFloat(sumBy(geolog.rows, p.DDHID, 'Avance').toFixed(1)),
+          ESTADO: overrides[p.DDHID] || estadoCalc,
+          PCT: pct,
+          FECHA_INICIO: fechas[0] || null,
+          FECHA_FIN: fechas[fechas.length-1] || null,
+        }
+      })
+
+    // Totales globales
+    const totales = {
+      perforado:    parseFloat(perf.rows.reduce((s,r) => s+(parseFloat(r.Total_Dia)||0),0).toFixed(1)),
+      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.Metros)||0),0).toFixed(1)),
+      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+    }
+
+    // Serie temporal de perforación para gráfico acumulado
+    // Calcular cuántas máquinas perforaron cada día
+    const equipoInicio = {} // equipo → primera fecha que perforó
+    perf.rows.forEach(r => {
+      // Necesitamos saber el equipo — lo sacamos de programa_general
+      const pg = prog.rows.find(p => p.DDHID === r.DDHID)
+      const equipo = pg?.EQUIPO || r.DDHID // fallback al DDHID
+      const f = r.Fecha instanceof Date
+        ? (() => { const d=r.Fecha; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}` })()
+        : String(r.Fecha).slice(0,10)
+      if (!equipoInicio[equipo] || f < equipoInicio[equipo]) equipoInicio[equipo] = f
+    })
+
+    // Acumulado real por fecha
+    const perfPorFecha = {}
+    perf.rows.forEach(r => {
+      const f = r.Fecha instanceof Date
+        ? (() => { const d=r.Fecha; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}` })()
+        : String(r.Fecha).slice(0,10)
+      perfPorFecha[f] = (perfPorFecha[f] || 0) + (parseFloat(r.Total_Dia) || 0)
+    })
+
+    // Generar serie acumulada real + ideal acumulada
+    const fechasOrdenadas = Object.keys(perfPorFecha).sort()
+    let acumReal  = 0
+    let acumIdeal = 0
+    let maqPrevias = 0
+    const serieReal  = []
+    const serieIdeal = []
+
+    fechasOrdenadas.forEach(f => {
+      // Real acumulado
+      acumReal += perfPorFecha[f]
+      serieReal.push({ fecha: f, valor: parseFloat(acumReal.toFixed(1)) })
+
+      // Ideal: cuántas máquinas han iniciado hasta este día (incluyendo hoy)
+      // Una vez que una máquina inicia, se cuenta siempre aunque no reporte ese día
+      const maqActivas = Object.values(equipoInicio).filter(ini => ini <= f).length
+      // Si arrancó una nueva máquina hoy, el acumulado ideal salta
+      // Sumamos 35 * maqActivas por cada día
+      acumIdeal += 35 * maqActivas
+      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)) })
+      maqPrevias = maqActivas
+    })
+
+    res.json({ porSondaje, totales, serieReal, serieIdeal, fechasOrdenadas })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
 
 // PUT /api/tables/resumen/equipo — actualiza EQUIPO en programa_general
 router.put('/resumen/equipo', authMiddleware, async (req, res) => {

@@ -32,10 +32,10 @@ async function loadXLSX() {
 function formatVal(v) {
   if (v === null || v === undefined) return ''
   const s = String(v)
-  // Fechas ISO YYYY-MM-DD → DD/MM/YYYY
+  // Fechas ISO → YYYY/MM/DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
     const [y, m, d] = s.slice(0, 10).split('-')
-    return `${d}/${m}/${y}`
+    return `${y}/${m}/${d}`
   }
   return v
 }

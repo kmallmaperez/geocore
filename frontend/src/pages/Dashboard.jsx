@@ -1,225 +1,278 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Chart, BarElement, BarController, CategoryScale, LinearScale, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js'
+import {
+  Chart, BarElement, BarController, LineElement, LineController, PointElement,
+  CategoryScale, LinearScale, Tooltip, Legend, Filler
+} from 'chart.js'
 import { useAuth } from '../context/AuthContext'
-import { statCls, today, fmtFecha } from '../utils/tableDefs'
+import { statCls, fmtFecha, today } from '../utils/tableDefs'
 import api from '../utils/api'
 
-Chart.register(BarElement, BarController, CategoryScale, LinearScale, ArcElement, DoughnutController, Tooltip, Legend)
+Chart.register(
+  BarElement, BarController, LineElement, LineController, PointElement,
+  CategoryScale, LinearScale, Tooltip, Legend, Filler
+)
+
+function destroyChart(ref) {
+  if (ref.current) { ref.current.destroy(); ref.current = null }
+}
+
+const C = {
+  perf:  { bg:'rgba(16,185,129,.5)',  bd:'#10b981' },
+  recep: { bg:'rgba(59,130,246,.5)',  bd:'#3b82f6' },
+  recup: { bg:'rgba(168,85,247,.5)',  bd:'#a855f7' },
+  foto:  { bg:'rgba(245,158,11,.5)',  bd:'#f59e0b' },
+  geot:  { bg:'rgba(239,68,68,.5)',   bd:'#ef4444' },
+  geol:  { bg:'rgba(20,184,166,.5)',  bd:'#14b8a6' },
+}
+
+const TICK = { color:'#64748b', font:{ size:9 } }
+const LEGEND_OPTS = { labels:{ color:'#94a3b8', font:{ size:11 }, boxWidth:12 } }
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const [resumen,  setResumen]  = useState([])
-  const [perfDia,  setPerfDia]  = useState([]) // perforacion por fecha
-  const [stats,    setStats]    = useState({
-    sondajes: 0, metrosPerf: 0,
-    metosRecep: 0, totalGeoTec: 0, totalGeoLog: 0, completados: 0
-  })
-  const crAvance = useRef(null), crDia = useRef(null), crEstado = useRef(null)
-  const ciAvance = useRef(null), ciDia = useRef(null), ciEstado = useRef(null)
+  const [stats,       setStats]       = useState({ perforado:0, recepcion:0, recuperado:0, fotografiado:0, geotecnico:0, geologico:0 })
+  const [porSondaje,  setPorSondaje]  = useState([])
+  const [serieReal,   setSerieReal]   = useState([])
+  const [serieIdeal,  setSerieIdeal]  = useState([])
+  const [fechasSerie, setFechasSerie] = useState([])
+  const [perfDia,     setPerfDia]     = useState([])
 
+  const crAcum   = useRef(null); const ciAcum   = useRef(null)
+  const crDia    = useRef(null); const ciDia    = useRef(null)
+  const crSondaj = useRef(null); const ciSondaj = useRef(null)
+  const sondajWrap = useRef(null) // para auto-scroll
+
+  // ── Carga de datos ───────────────────────────────────────────────
   useEffect(() => {
-    // Resumen general
-    api.get('/tables/resumen/general').then(r => setResumen(r.data)).catch(() => {})
+    // Stats completos
+    api.get('/tables/dashboard/stats').then(r => {
+      const d = r.data
+      setStats(d.totales)
+      // Orden: no completados (alfa) → completados (alfa)
+      const sorted = [...d.porSondaje].sort((a, b) => {
+        const aC = a.ESTADO === 'Completado' ? 1 : 0
+        const bC = b.ESTADO === 'Completado' ? 1 : 0
+        if (aC !== bC) return aC - bC
+        return (a.DDHID||'').localeCompare(b.DDHID||'')
+      })
+      setPorSondaje(sorted)
+      setSerieReal(d.serieReal)
+      setSerieIdeal(d.serieIdeal)
+      setFechasSerie(d.fechasOrdenadas)
+    }).catch(() => {})
 
-    // Cards: perforación total
+    // Avance diario por turno — últimos 14 días
     api.get('/tables/perforacion').then(r => {
-      const rows = r.data
-      const tot = rows.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
-      setStats(p => ({ ...p, metrosPerf: tot.toFixed(1) }))
-
-      // Agrupar por fecha para gráfico de avance diario
       const byDate = {}
-      rows.forEach(x => {
-        const f = x.Fecha ? String(x.Fecha).slice(0,10) : null
-        if (!f) return
-        if (!byDate[f]) byDate[f] = { dia: 0, noche: 0 }
+      r.data.forEach(x => {
+        const raw = x.Fecha ? String(x.Fecha) : null
+        if (!raw) return
+        // Normalizar a YYYY-MM-DD
+        const f = raw.includes('T') ? raw.slice(0,10) : raw.slice(0,10)
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return
+        if (!byDate[f]) byDate[f] = { dia:0, noche:0 }
         byDate[f].dia   += parseFloat(x.Turno_Dia)   || 0
         byDate[f].noche += parseFloat(x.Turno_Noche) || 0
       })
-      // Últimos 14 días con data
-      const sorted = Object.entries(byDate)
-        .sort(([a],[b]) => a.localeCompare(b))
-        .slice(-14)
+      const sorted = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-14)
       setPerfDia(sorted)
-    }).catch(() => {})
-
-    // Cards: recepción
-    api.get('/tables/recepcion').then(r => {
-      const tot = r.data.reduce((s, x) => s + (parseFloat(x.Metros) || 0), 0)
-      setStats(p => ({ ...p, metosRecep: tot.toFixed(1) }))
-    }).catch(() => {})
-
-    // Cards: geotécnico (count de registros)
-    api.get('/tables/l_geotecnico').then(r => {
-      setStats(p => ({ ...p, totalGeoTec: r.data.length }))
-    }).catch(() => {})
-
-    // Cards: geológico (count de registros)
-    api.get('/tables/l_geologico').then(r => {
-      setStats(p => ({ ...p, totalGeoLog: r.data.length }))
-    }).catch(() => {})
-
-    // Sondajes programados
-    api.get('/tables/programa_general').then(r => {
-      setStats(p => ({ ...p, sondajes: r.data.length }))
     }).catch(() => {})
   }, [])
 
+  // ── Gráfico 1: Acumulado real vs ideal (líneas) ─────────────────
   useEffect(() => {
-    setStats(p => ({ ...p, completados: resumen.filter(r => r.ESTADO === 'Completado').length }))
-  }, [resumen])
-
-  // Gráfico 1: Avance por Sondaje (Programado vs Ejecutado)
-  useEffect(() => {
-    if (!crAvance.current || !resumen.length) return
-    if (ciAvance.current) ciAvance.current.destroy()
-    const filtered = resumen.filter(r => r.DDHID)
-    ciAvance.current = new Chart(crAvance.current, {
-      type: 'bar',
+    if (!serieReal.length || !crAcum.current) return
+    destroyChart(ciAcum)
+    ciAcum.current = new Chart(crAcum.current, {
+      type: 'line',
       data: {
-        labels: filtered.map(r => r.DDHID),
+        labels: fechasSerie.map(f => fmtFecha(f)),
         datasets: [
-          { label: 'Programado', data: filtered.map(r => r.PROGRAMADO || 0), backgroundColor: 'rgba(59,130,246,.4)', borderColor: '#3b82f6', borderWidth: 1 },
-          { label: 'Ejecutado',  data: filtered.map(r => r.EJECUTADO  || 0), backgroundColor: 'rgba(16,185,129,.4)', borderColor: '#10b981', borderWidth: 1 },
+          {
+            label: '⛏ Real acumulado',
+            data: serieReal.map(p => p.valor),
+            borderColor: C.perf.bd, backgroundColor: 'rgba(16,185,129,.1)',
+            borderWidth: 2.5, pointRadius: 3, tension: 0.3, fill: true,
+          },
+          {
+            label: '📐 Ideal (35m/día × máquinas)',
+            data: serieIdeal.map(p => p.valor),
+            borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,.08)',
+            borderWidth: 2, borderDash: [6,4], pointRadius: 0, tension: 0, fill: true,
+          },
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+        plugins: { legend: LEGEND_OPTS, tooltip: { mode:'index', intersect:false } },
         scales: {
-          x: { ticks: { color: '#64748b', font: { size: 10 } } },
-          y: { ticks: { color: '#64748b' }, title: { display: true, text: 'metros', color: '#64748b', font: { size: 10 } } }
+          x: { ticks:{ ...TICK, maxRotation:45 } },
+          y: { ticks: TICK, title:{ display:true, text:'metros acumulados', color:'#64748b', font:{ size:10 } } }
         }
       }
     })
-  }, [resumen])
+  }, [serieReal, serieIdeal, fechasSerie])
 
-  // Gráfico 2: Avance diario (Turno Día vs Turno Noche) — últimos 14 días
+  // ── Gráfico 2: Avance diario por turno (barras apiladas) ────────
   useEffect(() => {
-    if (!crDia.current || !perfDia.length) return
-    if (ciDia.current) ciDia.current.destroy()
+    if (!perfDia.length || !crDia.current) return
+    destroyChart(ciDia)
     ciDia.current = new Chart(crDia.current, {
       type: 'bar',
       data: {
         labels: perfDia.map(([f]) => fmtFecha(f)),
         datasets: [
-          {
-            label: '☀ Turno Día',
-            data: perfDia.map(([,v]) => parseFloat(v.dia.toFixed(2))),
-            backgroundColor: 'rgba(245,158,11,.55)',
-            borderColor: '#f59e0b',
-            borderWidth: 1,
-          },
-          {
-            label: '🌙 Turno Noche',
-            data: perfDia.map(([,v]) => parseFloat(v.noche.toFixed(2))),
-            backgroundColor: 'rgba(99,102,241,.55)',
-            borderColor: '#6366f1',
-            borderWidth: 1,
-          },
+          { label:'☀ Turno Día',    data: perfDia.map(([,v]) => +v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
+          { label:'🌙 Turno Noche', data: perfDia.map(([,v]) => +v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
-          tooltip: {
-            callbacks: {
-              footer: (items) => {
-                const total = items.reduce((s, i) => s + i.parsed.y, 0)
-                return `Total día: ${total.toFixed(2)} m`
-              }
-            }
-          }
+        plugins: {
+          legend: LEGEND_OPTS,
+          tooltip: { callbacks: { footer: items => `Total: ${items.reduce((s,i)=>s+i.parsed.y,0).toFixed(2)} m` } }
         },
         scales: {
-          x: { stacked: true, ticks: { color: '#64748b', font: { size: 10 } } },
-          y: { stacked: true, ticks: { color: '#64748b' }, title: { display: true, text: 'metros', color: '#64748b', font: { size: 10 } } }
+          x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
+          y: { stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
         }
       }
     })
   }, [perfDia])
 
-  // Gráfico 3: Estado de Sondajes (donut)
+  // ── Gráfico 3: Metros por sondaje (6 series, barras agrupadas) ──
   useEffect(() => {
-    if (!crEstado.current || !resumen.length) return
-    if (ciEstado.current) ciEstado.current.destroy()
-    const est = ['Completado', 'En Proceso', 'Pendiente']
-    ciEstado.current = new Chart(crEstado.current, {
-      type: 'doughnut',
+    if (!porSondaje.length || !crSondaj.current) return
+    destroyChart(ciSondaj)
+    const labels = porSondaje.map(r => r.DDHID)
+    const BAR_W  = Math.max(50, porSondaje.length * 56) // ancho mínimo por sondaje
+
+    ciSondaj.current = new Chart(crSondaj.current, {
+      type: 'bar',
       data: {
-        labels: est,
-        datasets: [{ data: est.map(s => resumen.filter(r => r.ESTADO === s).length), backgroundColor: ['#10b981','#f59e0b','#475569'], borderWidth: 0 }]
+        labels,
+        datasets: [
+          { label:'Perforado',    data: porSondaje.map(r=>r.PERFORADO),    backgroundColor:C.perf.bg,  borderColor:C.perf.bd,  borderWidth:1 },
+          { label:'Recepcionado', data: porSondaje.map(r=>r.RECEPCION),    backgroundColor:C.recep.bg, borderColor:C.recep.bd, borderWidth:1 },
+          { label:'Recuperado',   data: porSondaje.map(r=>r.RECUPERADO),   backgroundColor:C.recup.bg, borderColor:C.recup.bd, borderWidth:1 },
+          { label:'Fotografiado', data: porSondaje.map(r=>r.FOTOGRAFIADO), backgroundColor:C.foto.bg,  borderColor:C.foto.bd,  borderWidth:1 },
+          { label:'Geotécnico',   data: porSondaje.map(r=>r.GEOTECNICO),   backgroundColor:C.geot.bg,  borderColor:C.geot.bd,  borderWidth:1 },
+          { label:'Geológico',    data: porSondaje.map(r=>r.GEOLOGICO),    backgroundColor:C.geol.bg,  borderColor:C.geol.bd,  borderWidth:1 },
+        ]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 } } } } }
+      options: {
+        responsive: false,   // false = respeta width/height del canvas explícito
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position:'top', ...LEGEND_OPTS },
+          tooltip: { mode:'index', intersect:false }
+        },
+        scales: {
+          x: { ticks:{ ...TICK, maxRotation:45 } },
+          y: { ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
+        }
+      }
     })
-  }, [resumen])
+
+    // Auto-scroll al primer sondaje "En Proceso" (más a la derecha → último no completado)
+    setTimeout(() => {
+      if (!sondajWrap.current) return
+      const primerEnProceso = porSondaje.findIndex(r => r.ESTADO !== 'Completado')
+      if (primerEnProceso >= 0) {
+        const pxPorSondaje = BAR_W / porSondaje.length
+        const scrollTarget = primerEnProceso * pxPorSondaje
+        sondajWrap.current.scrollLeft = Math.max(0, scrollTarget - 60)
+      }
+    }, 150)
+  }, [porSondaje])
+
+  // ── Tarjetas ─────────────────────────────────────────────────────
+  const CARDS = [
+    { lbl:'Perforado',     val: stats.perforado,    color: C.perf.bd,  icon:'⛏' },
+    { lbl:'Recuperado',    val: stats.recuperado,   color: C.recup.bd, icon:'🧪' },
+    { lbl:'Fotografiado',  val: stats.fotografiado, color: C.foto.bd,  icon:'📷' },
+    { lbl:'Log. Geotéc.',  val: stats.geotecnico,   color: C.geot.bd,  icon:'🪨' },
+    { lbl:'Log. Geológ.',  val: stats.geologico,    color: C.geol.bd,  icon:'🔬' },
+  ]
+
+  // Ancho del canvas de sondajes: mínimo 100% pantalla, crece con más sondajes
+  const sondajCanvasW = Math.max(700, porSondaje.length * 80)
 
   return (
     <div>
       <div className="page-title">Dashboard</div>
       <div className="page-desc">Bienvenido, {user.name} — {fmtFecha(today())}</div>
 
-      {/* 4 Cards */}
-      <div className="c-grid">
-        <div className="s-card">
-          <div className="s-lbl">Perf. Total</div>
-          <div className="s-val" style={{ color:'var(--grn)' }}>{stats.metrosPerf}</div>
-          <div className="s-sub">metros perforados</div>
-        </div>
-        <div className="s-card">
-          <div className="s-lbl">Recepción Total</div>
-          <div className="s-val" style={{ color:'var(--blu)' }}>{stats.metosRecep}</div>
-          <div className="s-sub">metros recibidos</div>
-        </div>
-        <div className="s-card">
-          <div className="s-lbl">Log. Geotécnico</div>
-          <div className="s-val" style={{ color:'var(--acc)' }}>{stats.totalGeoTec}</div>
-          <div className="s-sub">registros</div>
-        </div>
-        <div className="s-card">
-          <div className="s-lbl">Log. Geológico</div>
-          <div className="s-val" style={{ color:'var(--red)' }}>{stats.totalGeoLog}</div>
-          <div className="s-sub">registros</div>
+      {/* ── 5 Cards ── */}
+      <div className="c-grid" style={{ gridTemplateColumns:'repeat(5,1fr)', marginBottom:20 }}>
+        {CARDS.map(c => (
+          <div key={c.lbl} className="s-card">
+            <div className="s-lbl">{c.icon} {c.lbl}</div>
+            <div className="s-val" style={{ color:c.color }}>{c.val ?? '—'}</div>
+            <div className="s-sub">metros totales</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Gráfico acumulado real vs ideal (ancho completo) ── */}
+      <div className="ch-card" style={{ marginBottom:16 }}>
+        <div className="ch-title">📈 Acumulado real vs ideal (35m/día × máquinas activas)</div>
+        <div style={{ height:240 }}>
+          <canvas ref={crAcum} />
         </div>
       </div>
 
-      {/* 3 Gráficos */}
-      <div className="ch-grid">
-        <div className="ch-card" style={{ gridColumn: 'span 2' }}>
-          <div className="ch-title">⛏ Avance diario por turno (últimos 14 días)</div>
-          <div style={{ height: 220 }}><canvas ref={crDia} /></div>
-        </div>
-        <div className="ch-card">
-          <div className="ch-title">📊 Avance por Sondaje (m)</div>
-          <div style={{ height: 220 }}><canvas ref={crAvance} /></div>
-        </div>
-        <div className="ch-card">
-          <div className="ch-title">📋 Estado de Sondajes</div>
-          <div style={{ height: 220 }}><canvas ref={crEstado} /></div>
+      {/* ── Avance diario (mitad izq) ── */}
+      <div className="ch-card" style={{ marginBottom:16 }}>
+        <div className="ch-title">⛏ Avance diario por turno — últimos 14 días</div>
+        <div style={{ height:220 }}>
+          <canvas ref={crDia} />
         </div>
       </div>
 
-      {/* Tabla de progreso */}
-      {user.role !== 'USER' && (
+      {/* ── Gráfico metros por sondaje — scroll horizontal, auto-scroll a en-proceso ── */}
+      <div className="ch-card" style={{ marginBottom:16 }}>
+        <div className="ch-title">📊 Metros por sondaje (izq: completados → der: en proceso)</div>
+        <div
+          ref={sondajWrap}
+          style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:4 }}
+        >
+          <div style={{ width: sondajCanvasW, height:280 }}>
+            <canvas ref={crSondaj} width={sondajCanvasW} height={280} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tabla resumen completo por sondaje ── */}
+      {user.role !== 'USER' && porSondaje.length > 0 && (
         <div className="t-wrap">
-          <div className="t-top"><span className="t-title">Progreso de Sondajes</span></div>
+          <div className="t-top"><span className="t-title">Resumen completo por sondaje</span></div>
           <div className="ox">
             <table className="tbl">
               <thead>
-                <tr>{['DDHID','Plataforma','Programado','Ejecutado','Estado','Progreso'].map(c => <th key={c}>{c}</th>)}</tr>
+                <tr>
+                  {['#','DDHID','Estado','Prog.(m)','Perf.(m)','Recep.(m)','Recup.(m)','Foto.(m)','Geotéc.(m)','Geológ.(m)','%'].map(c=>(
+                    <th key={c}>{c}</th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
-                {resumen.filter(r => r.DDHID).map(r => (
+                {porSondaje.map((r,i) => (
                   <tr key={r.DDHID}>
+                    <td style={{ color:'var(--mut)', fontSize:11 }}>{i+1}</td>
                     <td><strong>{r.DDHID}</strong></td>
-                    <td>{r.PLATAFORMA}</td>
-                    <td>{r.PROGRAMADO}m</td>
-                    <td>{r.EJECUTADO}m</td>
                     <td><span className={`bdg ${statCls(r.ESTADO)}`}>{r.ESTADO}</span></td>
+                    <td>{r.PROGRAMADO}</td>
+                    <td style={{ color:C.perf.bd  }}>{r.PERFORADO}</td>
+                    <td style={{ color:C.recep.bd }}>{r.RECEPCION}</td>
+                    <td style={{ color:C.recup.bd }}>{r.RECUPERADO}</td>
+                    <td style={{ color:C.foto.bd  }}>{r.FOTOGRAFIADO}</td>
+                    <td style={{ color:C.geot.bd  }}>{r.GEOTECNICO}</td>
+                    <td style={{ color:C.geol.bd  }}>{r.GEOLOGICO}</td>
                     <td>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div className="p-bar"><div className="p-fill" style={{ width: Math.min(r.PCT,100)+'%' }} /></div>
-                        <span style={{ fontSize:11, color:'var(--mut)', minWidth:32 }}>{r.PCT}%</span>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <div className="p-bar"><div className="p-fill" style={{ width:Math.min(r.PCT,100)+'%' }}/></div>
+                        <span style={{ fontSize:11, color:'var(--mut)', minWidth:28 }}>{r.PCT}%</span>
                       </div>
                     </td>
                   </tr>

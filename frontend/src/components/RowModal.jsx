@@ -47,6 +47,46 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
 
   useEffect(() => { setAutoVals(computeAuto(tkey, form)) }, [form, tkey])
 
+  // Auto-fill FROM con el máximo TO del sondaje seleccionado (solo en nuevo registro)
+  useEffect(() => {
+    if (initData) return        // edición: no tocar
+    if (!form.DDHID) return     // sin sondaje seleccionado aún
+
+    const mismo = existingRows.filter(r => r.DDHID === form.DDHID)
+    if (!mismo.length) return   // primer registro de este sondaje, no hay historial
+
+    // Pares FROM→TO según tabla
+    const pares = [
+      ['From_Dia',   'TO_Dia'],     // perforacion turno día
+      ['From_Noche', 'To_Noche'],   // perforacion turno noche
+      ['FROM',       'TO'],         // recepcion
+      ['From',       'To'],         // recuperacion, fotografia, geotecnico, geologico
+      ['DE',         'HASTA'],      // muestreo
+      ['DE',         'A'],          // corte
+    ]
+
+    const updates = {}
+    pares.forEach(([fromCol, toCol]) => {
+      if (!formCols.includes(fromCol)) return  // esta tabla no tiene este campo
+
+      // Máximo TO de todos los registros del mismo sondaje
+      const maxTo = mismo.reduce((mx, r) => {
+        // Para perforacion, el max global es el mayor entre ambos turnos
+        const candidatos = [r[toCol], r['TO_Dia'], r['To_Noche']].filter(v => v !== undefined && v !== null && v !== '')
+        const maxLocal = Math.max(...candidatos.map(v => parseFloat(v) || -Infinity))
+        return maxLocal > mx ? maxLocal : mx
+      }, -Infinity)
+
+      if (isFinite(maxTo) && maxTo >= 0) {
+        updates[fromCol] = String(maxTo)
+      }
+    })
+
+    if (Object.keys(updates).length > 0) {
+      setForm(prev => ({ ...prev, ...updates }))
+    }
+  }, [form.DDHID, existingRows])  // re-ejecutar si cambia DDHID o llegan nuevos datos
+
   useEffect(() => {
     if (Object.keys(touched).length === 0) return
     const errs = validateClient(tkey, form, existingRows, initData?.id)
