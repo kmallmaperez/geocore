@@ -35,27 +35,33 @@ function MaquinaChart({ equipo, ddhid, datos, completado }) {
   const chartRef  = useRef(null)
 
   useEffect(() => {
-    if (!canvasRef.current || !datos.length) return
-    if (chartRef.current) chartRef.current.destroy()
-    chartRef.current = new Chart(canvasRef.current, {
-      type: 'bar',
-      data: {
-        labels: datos.map(([f]) => fmtFecha(f)),
-        datasets: [
-          { label:'☀ Turno Día',    data: datos.map(([,v]) => +v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
-          { label:'🌙 Turno Noche', data: datos.map(([,v]) => +v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
-        ]
-      },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        plugins: { legend:LEGEND_OPTS, tooltip:TOOLTIP_DIA },
-        scales: {
-          x:{ stacked:true, ticks:{ ...TICK, maxRotation:45 } },
-          y:{ stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
+    if (!datos.length) return
+    const timer = setTimeout(() => {
+      if (!canvasRef.current) return
+      if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
+      chartRef.current = new Chart(canvasRef.current, {
+        type: 'bar',
+        data: {
+          labels: datos.map(([f]) => fmtFecha(f)),
+          datasets: [
+            { label:'☀ Turno Día',    data: datos.map(([,v]) => +v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
+            { label:'🌙 Turno Noche', data: datos.map(([,v]) => +v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: LEGEND_OPTS, tooltip: TOOLTIP_DIA },
+          scales: {
+            x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
+            y: { stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
+          }
         }
-      }
-    })
-    return () => { chartRef.current?.destroy() }
+      })
+    }, 50)
+    return () => {
+      clearTimeout(timer)
+      if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
+    }
   }, [datos])
 
   function downloadCSV() {
@@ -76,7 +82,7 @@ function MaquinaChart({ equipo, ddhid, datos, completado }) {
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:8, gap:8 }}>
         <div>
           <div className="ch-title" style={{ margin:0 }}>
-            🔧 {equipo}
+            🔧 {equipo || 'Sin equipo asignado'}
           </div>
           <div style={{ fontSize:12, color:'var(--acc)', fontWeight:600, marginTop:2 }}>
             {ddhid} {completado && <span style={{ fontSize:10, color:'var(--mut)', fontWeight:400 }}>— finalizado</span>}
@@ -123,8 +129,9 @@ export default function Dashboard() {
 
       // Sondajes a mostrar en gráficos por máquina:
       // En proceso con equipo + 2 últimos completados
-      const enProceso = sorted.filter(s => s.ESTADO !== 'Completado' && s.EQUIPO)
-      const completadosRecientes = (d.completadosRecientes || []).filter(s => s.EQUIPO)
+      // Mostrar todos los sondajes en proceso (con o sin equipo asignado)
+      const enProceso = sorted.filter(s => s.ESTADO !== 'Completado')
+      const completadosRecientes = d.completadosRecientes || []
       const paraGraficos = [
         ...enProceso.map(s => ({ ...s, completado: false })),
         ...completadosRecientes.map(s => ({ ...s, completado: true }))

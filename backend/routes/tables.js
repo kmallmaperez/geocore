@@ -126,6 +126,7 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
         const estadoCalc = pct >= 100 ? 'Completado' : perfTotal > 0 ? 'En Proceso' : 'Pendiente'
         return {
           DDHID: p.DDHID,
+          EQUIPO: p.EQUIPO ? String(p.EQUIPO).trim() : '',
           PROGRAMADO: parseFloat(p.LENGTH || 0),
           PERFORADO:  parseFloat(perfTotal.toFixed(1)),
           RECEPCION:  parseFloat(sumBy(recep.rows,  p.DDHID, 'Metros').toFixed(1)),
@@ -152,11 +153,13 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
 
     // Serie temporal de perforación para gráfico acumulado
     // Calcular cuántas máquinas perforaron cada día
-    const equipoInicio = {} // equipo → primera fecha que perforó
+    // equipoInicio: solo equipos con nombre asignado (no vacíos)
+    // Cada equipo físico (máquina) → fecha en que empezó a perforar por primera vez
+    const equipoInicio = {}
     perf.rows.forEach(r => {
-      // Necesitamos saber el equipo — lo sacamos de programa_general
       const pg = prog.rows.find(p => p.DDHID === r.DDHID)
-      const equipo = pg?.EQUIPO || r.DDHID // fallback al DDHID
+      const equipo = pg?.EQUIPO ? String(pg.EQUIPO).trim() : null
+      if (!equipo) return // sin equipo asignado, no cuenta para el ideal
       const f = r.Fecha instanceof Date
         ? (() => { const d=r.Fecha; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}` })()
         : String(r.Fecha).slice(0,10)
@@ -187,8 +190,10 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
 
       // Ideal: cuántas máquinas han iniciado hasta este día (acumulativo)
       const maqActivas = Object.values(equipoInicio).filter(ini => ini <= f).length
-      acumIdeal += 35 * maqActivas
-      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)), maquinas: maqActivas })
+      // Si no hay equipos asignados aún, usar 1 como mínimo para no dar 0
+      const maqParaIdeal = maqActivas > 0 ? maqActivas : 1
+      acumIdeal += 35 * maqParaIdeal
+      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)), maquinas: maqParaIdeal })
       maqPrevias = maqActivas
     })
 
