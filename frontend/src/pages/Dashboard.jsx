@@ -30,7 +30,7 @@ const TOOLTIP_DIA = {
 }
 
 // ── Componente gráfico por máquina (ref propio, se crea 1 vez) ───
-function MaquinaChart({ equipo, ddhid, datos, completado }) {
+function MaquinaChart({ equipo, ddhid, datos, completado, programado }) {
   const canvasRef = useRef(null)
   const chartRef  = useRef(null)
 
@@ -87,6 +87,19 @@ function MaquinaChart({ equipo, ddhid, datos, completado }) {
           <div style={{ fontSize:12, color:'var(--acc)', fontWeight:600, marginTop:2 }}>
             {ddhid} {completado && <span style={{ fontSize:10, color:'var(--mut)', fontWeight:400 }}>— finalizado</span>}
           </div>
+          {programado != null && (() => {
+            const ejec  = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
+            const diff  = parseFloat((ejec - programado).toFixed(1))
+            const color = diff >= 0 ? '#10b981' : '#ef4444'
+            const sign  = diff >= 0 ? '+' : ''
+            return (
+              <div style={{ fontSize:11, marginTop:3, display:'flex', gap:10 }}>
+                <span style={{ color:'var(--mut)' }}>Ejec: <strong style={{ color:'var(--txt)' }}>{ejec.toFixed(1)}m</strong></span>
+                <span style={{ color:'var(--mut)' }}>Prog: <strong style={{ color:'var(--txt)' }}>{programado}m</strong></span>
+                <span style={{ color, fontWeight:700 }}>{sign}{diff}m</span>
+              </div>
+            )
+          })()}
         </div>
         <button className="btn btn-grn btn-sm" onClick={downloadCSV} style={{ flexShrink:0 }}>⬇ CSV</button>
       </div>
@@ -95,19 +108,69 @@ function MaquinaChart({ equipo, ddhid, datos, completado }) {
   )
 }
 
+// ── Componente gráfico diario (se monta cuando llegan los datos) ─
+// DiaChart: recibe perfDia ya cargado, se monta UNA sola vez con dimensiones correctas
+function DiaChartInner({ perfDia }) {
+  const canvasRef = useRef(null)
+  const W = Math.max(700, perfDia.length * 48)
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    const chart = new Chart(canvasRef.current, {
+      type: 'bar',
+      data: {
+        labels: perfDia.map(([f]) => fmtFecha(f)),
+        datasets: [
+          { label:'☀ Turno Día',    data: perfDia.map(([,v])=>+v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
+          { label:'🌙 Turno Noche', data: perfDia.map(([,v])=>+v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
+        ]
+      },
+      options: {
+        responsive: false, maintainAspectRatio: false,
+        plugins: { legend: LEGEND_OPTS, tooltip: TOOLTIP_DIA },
+        scales: {
+          x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
+          y: { stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
+        }
+      }
+    })
+    return () => chart.destroy()
+  }, [])  // [] — solo se ejecuta al montar, datos ya están disponibles
+
+  return (
+    <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+      <div style={{ width: W, height: 240 }}>
+        <canvas ref={canvasRef} width={W} height={240} style={{ display:'block' }} />
+      </div>
+    </div>
+  )
+}
+
+// Wrapper: no renderiza DiaChartInner hasta que haya datos
+// key={perfDia.length} garantiza desmonte/remonte si cambia el array
+function DiaChart({ perfDia }) {
+  if (!perfDia.length) return (
+    <div style={{ height:240, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--mut)' }}>
+      Cargando...
+    </div>
+  )
+  return <DiaChartInner key={perfDia.length} perfDia={perfDia} />
+}
+
 // ── Dashboard principal ──────────────────────────────────────────
 export default function Dashboard() {
   const { user } = useAuth()
   const [stats,        setStats]        = useState({ perforado:0, recepcion:0, recuperado:0, fotografiado:0, geotecnico:0, geologico:0 })
+  const [ultFecha,     setUltFecha]     = useState({ perf:'', recup:'', foto:'', geot:'', geol:'' })
   const [porSondaje,   setPorSondaje]   = useState([])
-  const [serieReal,    setSerieReal]    = useState([])
-  const [serieIdeal,   setSerieIdeal]   = useState([])
-  const [fechasSerie,  setFechasSerie]  = useState([])
+  const [serieProg,    setSerieProg]    = useState([])   // [{fecha,acumProg,acumReal,acumIdeal,maquinas}]
+  const [serieDiaria,  setSerieDiaria]  = useState([])   // [{fecha,real,maquinas}] para CSV
+  const [showIdeal,    setShowIdeal]    = useState(false) // toggle línea ideal
   const [perfDia,      setPerfDia]      = useState([])
   const [maquinaGrupos,setMaquinaGrupos]= useState([]) // en proceso + 2 últimos completados
 
   const crAcum   = useRef(null); const ciAcum   = useRef(null)
-  const crDia    = useRef(null); const ciDia    = useRef(null)
+  // crDia y diaWrapRef movidos a componente DiaChart
   const crSondaj = useRef(null); const ciSondaj = useRef(null)
   const sondajWrap = useRef(null)
 
@@ -116,6 +179,7 @@ export default function Dashboard() {
     api.get('/tables/dashboard/stats').then(r => {
       const d = r.data
       setStats(d.totales)
+      setUltFecha(d.ultimasFechas || { perf:'', recup:'', foto:'', geot:'', geol:'' })
       const sorted = [...d.porSondaje].sort((a,b) => {
         const aC = a.ESTADO === 'Completado' ? 1 : 0
         const bC = b.ESTADO === 'Completado' ? 1 : 0
@@ -123,9 +187,8 @@ export default function Dashboard() {
         return (a.DDHID||'').localeCompare(b.DDHID||'')
       })
       setPorSondaje(sorted)
-      setSerieReal(d.serieReal)
-      setSerieIdeal(d.serieIdeal)
-      setFechasSerie(d.fechasOrdenadas)
+      setSerieProg(d.serieProg   || [])
+      setSerieDiaria(d.serieDiaria || [])
 
       // Sondajes a mostrar en gráficos por máquina:
       // En proceso con equipo + 2 últimos completados
@@ -153,7 +216,7 @@ export default function Dashboard() {
             byDate[f].noche += parseFloat(p.Turno_Noche) || 0
           })
           const datos = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))
-          return { equipo:s.EQUIPO, ddhid:s.DDHID, datos, completado:s.completado }
+          return { equipo:s.EQUIPO, ddhid:s.DDHID, datos, completado:s.completado, programado:s.PROGRAMADO ?? null }
         }).filter(g => g.datos.length > 0)
         setMaquinaGrupos(grupos)
       }).catch(() => {})
@@ -171,91 +234,100 @@ export default function Dashboard() {
         byDate[f].dia   += parseFloat(x.Turno_Dia)   || 0
         byDate[f].noche += parseFloat(x.Turno_Noche) || 0
       })
-      setPerfDia(Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-14))
+      setPerfDia(Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))) // todos los días
     }).catch(() => {})
   }, [])
 
-  // ── Gráfico acumulado real vs ideal ────────────────────────────
+  // ── Gráfico Programado vs Ejecutado (+ toggle Ideal) ──────────
   useEffect(() => {
-    if (!serieReal.length || !crAcum.current) return
+    if (!serieProg.length || !crAcum.current) return
     if (ciAcum.current) { ciAcum.current.destroy(); ciAcum.current = null }
-    ciAcum.current = new Chart(crAcum.current, {
-      type:'line',
-      data:{
-        labels: fechasSerie.map(f => fmtFecha(f)),
-        datasets:[
-          { label:'⛏ Real acumulado', data:serieReal.map(p=>p.valor),
-            borderColor:C.perf.bd, backgroundColor:'rgba(16,185,129,.1)',
-            borderWidth:2.5, pointRadius:3, tension:0.3, fill:true },
-          { label:'📐 Ideal (35m/día × máquinas)', data:serieIdeal.map(p=>p.valor),
-            borderColor:'#fbbf24', backgroundColor:'rgba(251,191,36,.08)',
-            borderWidth:2, borderDash:[6,4], pointRadius:0, tension:0, fill:true },
-        ]
+
+    const hoy = new Date().toISOString().slice(0,10)
+    // Solo mostrar real hasta hoy
+    const labels   = serieProg.map(p => fmtFecha(p.fecha))
+    const dataProg = serieProg.map(p => p.acumProg)
+    const dataReal = serieProg.map(p => p.fecha <= hoy ? p.acumReal : null)
+    const dataIdeal= serieProg.map(p => p.fecha <= hoy ? p.acumIdeal : null)
+
+    const datasets = [
+      {
+        label: '📋 Programado',
+        data: dataProg,
+        borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.08)',
+        borderWidth: 2.5, pointRadius: 3, tension: 0.4, fill: true,
       },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:LEGEND_OPTS,
-          tooltip:{
-            mode:'index', intersect:false,
-            callbacks:{
-              label: item => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)} m`,
-              // Mostrar cantidad de máquinas activas en esa fecha (solo para línea ideal)
+      {
+        label: '⛏ Ejecutado real',
+        data: dataReal,
+        borderColor: C.perf.bd, backgroundColor: 'rgba(16,185,129,.12)',
+        borderWidth: 2.5, pointRadius: 4, tension: 0.3, fill: true,
+        spanGaps: false,
+      },
+    ]
+
+    if (showIdeal) {
+      datasets.push({
+        label: '📐 Ideal (35m/día × máquinas)',
+        data: dataIdeal,
+        borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,.06)',
+        borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0.3, fill: false,
+        spanGaps: false,
+      })
+    }
+
+    ciAcum.current = new Chart(crAcum.current, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: LEGEND_OPTS,
+          tooltip: {
+            mode: 'index', intersect: false,
+            callbacks: {
+              label: item => ` ${item.dataset.label}: ${item.parsed.y != null ? item.parsed.y.toLocaleString('es-PE') + ' m' : '—'}`,
               afterBody: items => {
                 const idx = items[0]?.dataIndex
-                const maq = serieIdeal[idx]?.maquinas
-                return maq != null ? [`  Máquinas activas: ${maq}`] : []
+                const maq = serieProg[idx]?.maquinas
+                return showIdeal && maq ? [`  Máquinas activas: ${maq}`] : []
               }
             }
           }
         },
-        scales:{
-          x:{ ticks:{ ...TICK, maxRotation:45 } },
-          y:{ ticks:TICK, title:{ display:true, text:'metros acumulados', color:'#64748b', font:{ size:10 } } }
+        scales: {
+          x: { ticks: { ...TICK, maxRotation: 45 } },
+          y: {
+            ticks: { ...TICK, callback: v => v.toLocaleString('es-PE') + ' m' },
+            title: { display: true, text: 'metros acumulados', color: '#64748b', font: { size: 10 } }
+          }
         }
       }
     })
-  }, [serieReal, serieIdeal, fechasSerie])
+  }, [serieProg, showIdeal])
 
-  // ── Gráfico avance diario por turno ────────────────────────────
-  useEffect(() => {
-    if (!perfDia.length || !crDia.current) return
-    if (ciDia.current) { ciDia.current.destroy(); ciDia.current = null }
-    ciDia.current = new Chart(crDia.current, {
-      type:'bar',
-      data:{
-        labels: perfDia.map(([f]) => fmtFecha(f)),
-        datasets:[
-          { label:'☀ Turno Día',    data:perfDia.map(([,v])=>+v.dia.toFixed(2)),   backgroundColor:'rgba(245,158,11,.6)', borderColor:'#f59e0b', borderWidth:1 },
-          { label:'🌙 Turno Noche', data:perfDia.map(([,v])=>+v.noche.toFixed(2)), backgroundColor:'rgba(99,102,241,.6)',  borderColor:'#6366f1', borderWidth:1 },
-        ]
-      },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:LEGEND_OPTS, tooltip:TOOLTIP_DIA },
-        scales:{
-          x:{ stacked:true, ticks:{ ...TICK, maxRotation:45 } },
-          y:{ stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
-        }
-      }
-    })
-  }, [perfDia])
+  // Gráfico diario → componente DiaChart (ver arriba)
 
-  // ── Gráfico metros por sondaje ──────────────────────────────────
+  // ── Gráfico Avance por Sondaje: ordenar por (Perf - GeoLog) desc → izq mayor diferencia
   useEffect(() => {
     if (!porSondaje.length || !crSondaj.current) return
     if (ciSondaj.current) { ciSondaj.current.destroy(); ciSondaj.current = null }
+    const sondajOrdenado = [...porSondaje].sort((a,b) => {
+      const da = (a.PERFORADO||0) - (a.GEOLOGICO||0)
+      const db = (b.PERFORADO||0) - (b.GEOLOGICO||0)
+      return db - da // mayor diferencia a la izquierda
+    })
     ciSondaj.current = new Chart(crSondaj.current, {
       type:'bar',
       data:{
-        labels: porSondaje.map(r=>r.DDHID),
+        labels: sondajOrdenado.map(r=>r.DDHID),
         datasets:[
-          { label:'Perforado',    data:porSondaje.map(r=>r.PERFORADO),    backgroundColor:C.perf.bg,  borderColor:C.perf.bd,  borderWidth:1 },
-          { label:'Recepcionado', data:porSondaje.map(r=>r.RECEPCION),    backgroundColor:C.recep.bg, borderColor:C.recep.bd, borderWidth:1 },
-          { label:'Recuperado',   data:porSondaje.map(r=>r.RECUPERADO),   backgroundColor:C.recup.bg, borderColor:C.recup.bd, borderWidth:1 },
-          { label:'Fotografiado', data:porSondaje.map(r=>r.FOTOGRAFIADO), backgroundColor:C.foto.bg,  borderColor:C.foto.bd,  borderWidth:1 },
-          { label:'Geotécnico',   data:porSondaje.map(r=>r.GEOTECNICO),   backgroundColor:C.geot.bg,  borderColor:C.geot.bd,  borderWidth:1 },
-          { label:'Geológico',    data:porSondaje.map(r=>r.GEOLOGICO),    backgroundColor:C.geol.bg,  borderColor:C.geol.bd,  borderWidth:1 },
+          { label:'Perforado',    data:sondajOrdenado.map(r=>r.PERFORADO),    backgroundColor:C.perf.bg,  borderColor:C.perf.bd,  borderWidth:1 },
+          { label:'Recepcionado', data:sondajOrdenado.map(r=>r.RECEPCION),    backgroundColor:C.recep.bg, borderColor:C.recep.bd, borderWidth:1 },
+          { label:'Recuperado',   data:sondajOrdenado.map(r=>r.RECUPERADO),   backgroundColor:C.recup.bg, borderColor:C.recup.bd, borderWidth:1 },
+          { label:'Fotografiado', data:sondajOrdenado.map(r=>r.FOTOGRAFIADO), backgroundColor:C.foto.bg,  borderColor:C.foto.bd,  borderWidth:1 },
+          { label:'Geotécnico',   data:sondajOrdenado.map(r=>r.GEOTECNICO),   backgroundColor:C.geot.bg,  borderColor:C.geot.bd,  borderWidth:1 },
+          { label:'Geológico',    data:sondajOrdenado.map(r=>r.GEOLOGICO),    backgroundColor:C.geol.bg,  borderColor:C.geol.bd,  borderWidth:1 },
         ]
       },
       options:{
@@ -280,28 +352,50 @@ export default function Dashboard() {
   // ── Descarga CSV acumulado real vs ideal ───────────────────────
   function downloadAcumCSV() {
     const bom = '\uFEFF'
-    const rows = [
-      ['Fecha','Real_Acumulado_m','Ideal_Acumulado_m','Maquinas_Activas'],
-      ...fechasSerie.map((f,i) => [
-        fmtFecha(f),
-        serieReal[i]?.valor  ?? '',
-        serieIdeal[i]?.valor ?? '',
-        serieIdeal[i]?.maquinas ?? ''
-      ])
+    const sep = '\r\n'
+    const quote = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const row   = cols => cols.map(quote).join(',')
+
+    // Hoja 1: Detalle diario
+    // Ejecutado_ideal_dia = 35 × máquinas activas ese día
+    const diario = [
+      row(['Fecha','Ejecutado_dia_m','Acum_Real_m','Maquinas_Activas','Ejecutado_Ideal_dia_m','Acum_Ideal_m']),
     ]
-    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\r\n')
+    let acumDia  = 0
+    let acumIdealDia = 0
+    serieDiaria.forEach(d => {
+      const ejec_dia   = parseFloat((parseFloat(d.real) - acumDia).toFixed(1))
+      const ideal_dia  = parseFloat((35 * d.maquinas).toFixed(1))
+      acumDia       = parseFloat(d.real)
+      acumIdealDia  = parseFloat((acumIdealDia + ideal_dia).toFixed(1))
+      diario.push(row([fmtFecha(d.fecha), ejec_dia, d.real, d.maquinas, ideal_dia, acumIdealDia]))
+    })
+
+    // Hoja 2: Programa semanal
+    // acumReal ya viene calculado en serieProg desde el backend
+    const prog = [
+      row(['Fecha_Programa','Acum_Programado_m','Acum_Real_hasta_fecha_m','Acum_Ideal_m','Maquinas_Activas']),
+      ...serieProg.map(p => row([fmtFecha(p.fecha), p.acumProg, p.acumReal, p.acumIdeal, p.maquinas]))
+    ]
+
+    // Unir en un solo CSV con separador de sección
+    const csv = [
+      '=== DETALLE DIARIO ===', ...diario,
+      '', '=== PROGRAMA SEMANAL ===', ...prog
+    ].join(sep)
+
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([bom+csv],{type:'text/csv;charset=utf-8;'}))
-    a.download = `Acumulado_vs_Ideal_${new Date().toISOString().slice(0,10)}.csv`
+    a.download = `Perf_Programada_vs_Ejecutada_${new Date().toISOString().slice(0,10)}.csv`
     a.click()
   }
 
   const CARDS = [
-    { lbl:'Perforado',    val:stats.perforado,    color:C.perf.bd,  icon:'⛏' },
-    { lbl:'Recuperado',   val:stats.recuperado,   color:C.recup.bd, icon:'🧪' },
-    { lbl:'Fotografiado', val:stats.fotografiado, color:C.foto.bd,  icon:'📷' },
-    { lbl:'Log. Geotéc.', val:stats.geotecnico,   color:C.geot.bd,  icon:'🪨' },
-    { lbl:'Log. Geológ.', val:stats.geologico,    color:C.geol.bd,  icon:'🔬' },
+    { lbl:'Perforado',    val:stats.perforado,    color:C.perf.bd,  icon:'⛏', ult:ultFecha.perf  },
+    { lbl:'Recuperado',   val:stats.recuperado,   color:C.recup.bd, icon:'🧪', ult:ultFecha.recup },
+    { lbl:'Fotografiado', val:stats.fotografiado, color:C.foto.bd,  icon:'📷', ult:ultFecha.foto  },
+    { lbl:'Log. Geotéc.', val:stats.geotecnico,   color:C.geot.bd,  icon:'🪨', ult:ultFecha.geot  },
+    { lbl:'Log. Geológ.', val:stats.geologico,    color:C.geol.bd,  icon:'🔬', ult:ultFecha.geol  },
   ]
 
   const sondajCanvasW = Math.max(700, porSondaje.length * 80)
@@ -318,23 +412,33 @@ export default function Dashboard() {
             <div className="s-lbl">{c.icon} {c.lbl}</div>
             <div className="s-val" style={{ color:c.color }}>{c.val ?? '—'}</div>
             <div className="s-sub">metros totales</div>
+            {c.ult && <div style={{ fontSize:10, color:'var(--mut)', marginTop:4 }}>📅 {fmtFecha(c.ult)}</div>}
           </div>
         ))}
       </div>
 
-      {/* Acumulado real vs ideal */}
+      {/* Programado vs Ejecutado */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-          <div className="ch-title" style={{ margin:0 }}>📈 Acumulado real vs ideal (35m/día × máquinas activas)</div>
-          <button className="btn btn-grn btn-sm" onClick={downloadAcumCSV}>⬇ CSV</button>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, flexWrap:'wrap', gap:8 }}>
+          <div className="ch-title" style={{ margin:0 }}>📈 Perforación Programada vs Perforación Ejecutada</div>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <button
+              className={`btn btn-sm ${showIdeal ? 'btn-grn' : 'btn-out'}`}
+              onClick={() => setShowIdeal(v => !v)}
+              title="Mostrar/ocultar línea ideal (35m/día × máquinas)"
+            >
+              {showIdeal ? '📐 Ideal ON' : '📐 Ideal OFF'}
+            </button>
+            <button className="btn btn-grn btn-sm" onClick={downloadAcumCSV}>⬇ CSV</button>
+          </div>
         </div>
-        <div style={{ height:240 }}><canvas ref={crAcum} /></div>
+        <div style={{ height:300 }}><canvas ref={crAcum} /></div>
       </div>
 
-      {/* Avance diario */}
+      {/* Avance de Perforación Diaria — componente con scroll */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">⛏ Avance diario por turno — últimos 14 días</div>
-        <div style={{ height:220 }}><canvas ref={crDia} /></div>
+        <div className="ch-title">⛏ Avance de Perforación Diaria</div>
+        <DiaChart perfDia={perfDia} />
       </div>
 
       {/* Gráficos por máquina */}
@@ -351,6 +455,7 @@ export default function Dashboard() {
                 ddhid={g.ddhid}
                 datos={g.datos}
                 completado={g.completado}
+                programado={g.programado}
               />
             ))}
           </div>
@@ -359,7 +464,7 @@ export default function Dashboard() {
 
       {/* Gráfico metros por sondaje */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">📊 Metros por sondaje</div>
+        <div className="ch-title">📊 Avance por Sondaje</div>
         <div ref={sondajWrap} style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
           <div style={{ width:sondajCanvasW, height:280 }}>
             <canvas ref={crSondaj} width={sondajCanvasW} height={280} />
@@ -368,7 +473,7 @@ export default function Dashboard() {
       </div>
 
       {/* Tabla resumen */}
-      {user.role !== 'USER' && porSondaje.length > 0 && (
+      {porSondaje.length > 0 && (
         <div className="t-wrap">
           <div className="t-top"><span className="t-title">Resumen completo por sondaje</span></div>
           <div className="ox">

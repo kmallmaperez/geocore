@@ -58,26 +58,57 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
 
+    // Helper: convierte fecha de BD a string YYYY-MM-DD
+    function toISO(f) {
+      if (!f) return null
+      if (f instanceof Date) {
+        const y = f.getUTCFullYear()
+        const m = String(f.getUTCMonth()+1).padStart(2,'0')
+        const d = String(f.getUTCDate()).padStart(2,'0')
+        return `${y}-${m}-${d}`
+      }
+      return String(f).slice(0,10)
+    }
+
     const resumen = prog.rows.map(p => {
-      const mp   = perf.rows.filter(x => x.DDHID === p.DDHID)
-      const ej   = mp.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
-      const fechas = mp.map(x => x.Fecha).filter(Boolean).map(f => {
-        // PostgreSQL returns Date objects; convert to YYYY-MM-DD
-        if (f instanceof Date) {
-          const y = f.getUTCFullYear()
-          const m = String(f.getUTCMonth()+1).padStart(2,'0')
-          const d = String(f.getUTCDate()).padStart(2,'0')
-          return `${y}-${m}-${d}`
-        }
-        return String(f).slice(0,10)
-      }).sort()
-      const pct  = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
-      const estadoCalc = pct >= 100 ? 'Completado' : pct > 0 ? 'En Proceso' : 'Pendiente'
+      const programado = parseFloat(p.LENGTH) || 0
+      const mp = perf.rows.filter(x => x.DDHID === p.DDHID)
+
+      // Ordenar registros por fecha asc para calcular acumulado incremental
+      const mpOrdenado = [...mp]
+        .map(x => ({ fecha: toISO(x.Fecha), total: parseFloat(x.Total_Dia) || 0, acum: parseFloat(x.Acumulado) || 0 }))
+        .filter(x => x.fecha)
+        .sort((a, b) => a.fecha.localeCompare(b.fecha))
+
+      const ej = mpOrdenado.reduce((s, x) => s + x.total, 0)
+
+      // ── FECHA_INICIO: primera fecha donde Total_Dia > 0 ──────────
+      const inicioRow = mpOrdenado.find(x => x.total > 0)
+      const fechaInicio = inicioRow?.fecha || null
+
+      // ── FECHA_FIN: depende de si el sondaje está completo o no ───
+      let fechaFin = null
+
+      if (ej < programado) {
+        // Condición 1: aún no completo → fecha max de cualquier registro
+        const conFecha = mpOrdenado.map(x => x.fecha).filter(Boolean)
+        fechaFin = conFecha.length ? conFecha[conFecha.length - 1] : null
+      } else {
+        // Condición 2: acumulado >= programado → fecha max donde Total_Dia > 0
+        // (excluir registros de "ajuste" con 0m que vengan después de completar)
+        const rowsConAvance = mpOrdenado.filter(x => x.total > 0).map(x => x.fecha)
+        fechaFin = rowsConAvance.length ? rowsConAvance[rowsConAvance.length - 1] : null
+      }
+
+      const pct = programado > 0 ? Math.round(ej / programado * 100) : 0
+      const estadoCalc = pct >= 100 ? 'Completado' : ej > 0 ? 'En Proceso' : 'Pendiente'
+
       return {
         DDHID:        p.DDHID, EQUIPO: p.EQUIPO || '',
-        PLATAFORMA:   p.PLATAFORMA, PROGRAMADO: p.LENGTH,
+        PLATAFORMA:   p.PLATAFORMA, PROGRAMADO: programado,
         EJECUTADO:    parseFloat(ej.toFixed(1)), ESTADO: overrides[p.DDHID] || estadoCalc,
-        FECHA_INICIO: fechas[0] || '—', FECHA_FIN: fechas[fechas.length-1] || '—',
+        FECHA_INICIO: fechaInicio || '—',
+        FECHA_FIN:    fechaFin    || '—',
         PCT: pct, _estadoManual: !!overrides[p.DDHID],
       }
     })
@@ -93,11 +124,11 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     const [prog, perf, recep, recup, foto, geotec, geolog, ov] = await Promise.all([
       db.query('SELECT * FROM programa_general'),
       db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia" FROM perforacion ORDER BY "Fecha"'),
-      db.query('SELECT "DDHID", "Metros" FROM recepcion'),
-      db.query('SELECT "DDHID", "Avance" FROM recuperacion'),
-      db.query('SELECT "DDHID", "Avance" FROM fotografia'),
-      db.query('SELECT "DDHID", "Avance" FROM l_geotecnico'),
-      db.query('SELECT "DDHID", "Avance" FROM l_geologico'),
+      db.query('SELECT "DDHID", "Fecha", "Metros" FROM recepcion'),
+      db.query('SELECT "DDHID", "Fecha", "Avance" FROM recuperacion'),
+      db.query('SELECT "DDHID", "Fecha", "Avance" FROM fotografia'),
+      db.query('SELECT "DDHID", "Fecha", "Avance" FROM l_geotecnico'),
+      db.query('SELECT "DDHID", "Fecha", "Avance" FROM l_geologico'),
       db.query('SELECT * FROM estado_overrides'),
     ])
 
@@ -122,12 +153,31 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
           }
           return String(f).slice(0,10)
         }).sort()
-        const pct = p.LENGTH > 0 ? Math.round(perfTotal / p.LENGTH * 100) : 0
+        const programado2 = parseFloat(p.LENGTH || 0)
+        const pct = programado2 > 0 ? Math.round(perfTotal / programado2 * 100) : 0
         const estadoCalc = pct >= 100 ? 'Completado' : perfTotal > 0 ? 'En Proceso' : 'Pendiente'
+
+        // FECHA_INICIO: primera fecha con Total_Dia > 0
+        const perfOrd = perfRows
+          .map(x => ({ fecha: (() => { const f=x.Fecha; if(!f) return null; if(f instanceof Date){const y=f.getUTCFullYear(),m=String(f.getUTCMonth()+1).padStart(2,'0'),d=String(f.getUTCDate()).padStart(2,'0');return `${y}-${m}-${d}`} return String(f).slice(0,10) })(), total: parseFloat(x.Total_Dia)||0 }))
+          .filter(x => x.fecha)
+          .sort((a,b) => a.fecha.localeCompare(b.fecha))
+        const inicioRow2 = perfOrd.find(x => x.total > 0)
+        const fechaInicio2 = inicioRow2?.fecha || null
+        // FECHA_FIN: misma lógica que resumen/general
+        let fechaFin2 = null
+        if (perfTotal < programado2) {
+          const cf = perfOrd.map(x=>x.fecha).filter(Boolean)
+          fechaFin2 = cf.length ? cf[cf.length-1] : null
+        } else {
+          const cf2 = perfOrd.filter(x=>x.total>0).map(x=>x.fecha)
+          fechaFin2 = cf2.length ? cf2[cf2.length-1] : null
+        }
+
         return {
           DDHID: p.DDHID,
           EQUIPO: p.EQUIPO ? String(p.EQUIPO).trim() : '',
-          PROGRAMADO: parseFloat(p.LENGTH || 0),
+          PROGRAMADO: programado2,
           PERFORADO:  parseFloat(perfTotal.toFixed(1)),
           RECEPCION:  parseFloat(sumBy(recep.rows,  p.DDHID, 'Metros').toFixed(1)),
           RECUPERADO: parseFloat(sumBy(recup.rows,  p.DDHID, 'Avance').toFixed(1)),
@@ -136,10 +186,22 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
           GEOLOGICO:  parseFloat(sumBy(geolog.rows, p.DDHID, 'Avance').toFixed(1)),
           ESTADO: overrides[p.DDHID] || estadoCalc,
           PCT: pct,
-          FECHA_INICIO: fechas[0] || null,
-          FECHA_FIN: fechas[fechas.length-1] || null,
+          FECHA_INICIO: fechaInicio2 || null,
+          FECHA_FIN:    fechaFin2    || null,
         }
       })
+
+    // Helper: última fecha de una tabla
+    function ultimaFecha(rows, col = 'Fecha') {
+      const fechas = rows.map(r => r[col]).filter(Boolean).map(f => {
+        if (f instanceof Date) {
+          const y=f.getUTCFullYear(),m=String(f.getUTCMonth()+1).padStart(2,'0'),d=String(f.getUTCDate()).padStart(2,'0')
+          return `${y}-${m}-${d}`
+        }
+        return String(f).slice(0,10)
+      }).filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort()
+      return fechas[fechas.length-1] || ''
+    }
 
     // Totales globales
     const totales = {
@@ -149,6 +211,15 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
       geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
       geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+    }
+
+    // Últimas fechas de reporte por tabla
+    const ultimasFechas = {
+      perf:  ultimaFecha(perf.rows),
+      recup: ultimaFecha(recup.rows),
+      foto:  ultimaFecha(foto.rows),
+      geot:  ultimaFecha(geotec.rows),
+      geol:  ultimaFecha(geolog.rows),
     }
 
     // Serie temporal de perforación para gráfico acumulado
@@ -166,7 +237,24 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       if (!equipoInicio[equipo] || f < equipoInicio[equipo]) equipoInicio[equipo] = f
     })
 
-    // Acumulado real por fecha
+    // ── Programa semanal fijo ────────────────────────────────────────
+    const PROGRAMA = [
+      {f:'2025-12-31',a:2196},{f:'2026-01-04',a:2621},{f:'2026-01-11',a:3365},
+      {f:'2026-01-18',a:4109},{f:'2026-01-25',a:4853},{f:'2026-01-31',a:5490},
+      {f:'2026-02-01',a:5608},{f:'2026-02-08',a:6431},{f:'2026-02-15',a:7254},
+      {f:'2026-02-22',a:8077},{f:'2026-02-28',a:8784},{f:'2026-03-01',a:8908},
+      {f:'2026-03-08',a:9776},{f:'2026-03-15',a:10644},{f:'2026-03-22',a:11512},
+      {f:'2026-03-29',a:12380},{f:'2026-03-31',a:12627},{f:'2026-04-05',a:13451},
+      {f:'2026-04-12',a:14604},{f:'2026-04-19',a:15757},{f:'2026-04-26',a:16910},
+      {f:'2026-04-30',a:17569},{f:'2026-05-03',a:18100},{f:'2026-05-10',a:19340},
+      {f:'2026-05-17',a:20580},{f:'2026-05-24',a:21820},{f:'2026-05-31',a:23059},
+      {f:'2026-06-07',a:23828},{f:'2026-06-14',a:24597},{f:'2026-06-21',a:25366},
+      {f:'2026-06-28',a:26135},{f:'2026-06-30',a:26353},{f:'2026-07-05',a:26619},
+      {f:'2026-07-12',a:26991},{f:'2026-07-19',a:27363},{f:'2026-07-26',a:27735},
+      {f:'2026-07-31',a:28000},
+    ]
+
+    // ── Acumulado real diario ─────────────────────────────────────
     const perfPorFecha = {}
     perf.rows.forEach(r => {
       const f = r.Fecha instanceof Date
@@ -175,26 +263,44 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       perfPorFecha[f] = (perfPorFecha[f] || 0) + (parseFloat(r.Total_Dia) || 0)
     })
 
-    // Generar serie acumulada real + ideal acumulada
+    // Serie diaria (para CSV diario)
     const fechasOrdenadas = Object.keys(perfPorFecha).sort()
-    let acumReal  = 0
-    let acumIdeal = 0
-    let maqPrevias = 0
-    const serieReal  = []
-    const serieIdeal = []
+    let _acum = 0
+    const serieDiaria = fechasOrdenadas.map(f => {
+      _acum += perfPorFecha[f]
+      const maq = Object.values(equipoInicio).filter(ini => ini <= f).length || 1
+      return { fecha: f, real: parseFloat(_acum.toFixed(1)), maquinas: maq }
+    })
 
-    fechasOrdenadas.forEach(f => {
-      // Real acumulado
-      acumReal += perfPorFecha[f]
-      serieReal.push({ fecha: f, valor: parseFloat(acumReal.toFixed(1)) })
+    // ── Serie sobre fechas del PROGRAMA ──────────────────────────
+    // Para cada fecha del programa: acumulado real hasta esa fecha
+    // e ideal acumulado (35m × máquinas activas × días desde fecha anterior del programa)
+    let acumRealProg  = 0
+    let acumIdealProg = 0
+    let fechaAnt = null
 
-      // Ideal: cuántas máquinas han iniciado hasta este día (acumulativo)
-      const maqActivas = Object.values(equipoInicio).filter(ini => ini <= f).length
-      // Si no hay equipos asignados aún, usar 1 como mínimo para no dar 0
-      const maqParaIdeal = maqActivas > 0 ? maqActivas : 1
-      acumIdeal += 35 * maqParaIdeal
-      serieIdeal.push({ fecha: f, valor: parseFloat(acumIdeal.toFixed(1)), maquinas: maqParaIdeal })
-      maqPrevias = maqActivas
+    const serieProg = PROGRAMA.map(({ f, a: acumProg }) => {
+      // Real: suma de todo lo perforado hasta esta fecha (inclusive)
+      acumRealProg = serieDiaria
+        .filter(d => d.fecha <= f)
+        .reduce((s, d) => s + (perfPorFecha[d.fecha] || 0), 0)
+
+      // Ideal: 35m × máquinas activas × días transcurridos en este período
+      if (fechaAnt !== null) {
+        const dias = Math.round((new Date(f) - new Date(fechaAnt)) / 86400000)
+        // Usar promedio de máquinas activas en el período
+        const maqEnPeriodo = Object.values(equipoInicio).filter(ini => ini <= f).length || 1
+        acumIdealProg += 35 * maqEnPeriodo * dias
+      }
+      fechaAnt = f
+
+      return {
+        fecha:     f,
+        acumProg:  acumProg,
+        acumReal:  parseFloat(acumRealProg.toFixed(1)),
+        acumIdeal: parseFloat(acumIdealProg.toFixed(1)),
+        maquinas:  Object.values(equipoInicio).filter(ini => ini <= f).length || 1,
+      }
     })
 
     // 2 últimos sondajes completados (por FECHA_FIN desc)
@@ -203,7 +309,13 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       .sort((a, b) => (b.FECHA_FIN||'').localeCompare(a.FECHA_FIN||''))
       .slice(0, 2)
 
-    res.json({ porSondaje, totales, serieReal, serieIdeal, fechasOrdenadas, completadosRecientes: completados })
+    res.json({
+      porSondaje, totales, ultimasFechas,
+      serieProg,       // serie sobre fechas del programa (gráfico principal)
+      serieDiaria,     // serie diaria (CSV detalle)
+      fechasOrdenadas, // fechas con dato real
+      completadosRecientes: completados
+    })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
@@ -254,11 +366,7 @@ router.get('/:table', authMiddleware, checkTable, async (req, res) => {
     const table = req.params.table
     let q = `SELECT * FROM ${table} ORDER BY id`
     const r = await db.query(q)
-    let rows = r.rows.map(toRow)
-    if (req.user.role === 'USER') {
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 10)
-      rows = rows.filter(row => !row.Fecha || new Date(row.Fecha) >= cutoff)
-    }
+    const rows = r.rows.map(toRow)
     res.json(rows)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })

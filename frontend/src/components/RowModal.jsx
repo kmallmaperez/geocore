@@ -96,8 +96,14 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
   }, [form, touched])
 
   function set(col, val) {
-    setForm(p => ({ ...p, [col]: val }))
-    setTouched(p => ({ ...p, [col]: true }))
+    // Auto-fill cascada en perforación: TO_Dia → From_Noche del mismo registro
+    if (col === 'TO_Dia' && tkey === 'perforacion') {
+      setForm(p => ({ ...p, [col]: val, From_Noche: val }))
+      setTouched(p => ({ ...p, [col]: true, From_Noche: true }))
+    } else {
+      setForm(p => ({ ...p, [col]: val }))
+      setTouched(p => ({ ...p, [col]: true }))
+    }
   }
 
   function handleSave() {
