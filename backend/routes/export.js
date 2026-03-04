@@ -30,7 +30,7 @@ const TABLES = {
 }
 
 // GET /api/export/all  → JSON con todas las tablas
-router.get('/all', authMiddleware, requireRole('ADMIN', 'SUPERVISOR'), async (req, res) => {
+router.get('/all', authMiddleware, async (req, res) => {
   try {
     const result = {}
     for (const [table, cols] of Object.entries(TABLES)) {

@@ -215,7 +215,23 @@ export default function Dashboard() {
             byDate[f].dia   += parseFloat(p.Turno_Dia)   || 0
             byDate[f].noche += parseFloat(p.Turno_Noche) || 0
           })
-          const datos = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))
+          let datos = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))
+
+          // 1. Quitar ceros iniciales (antes del primer día con metro > 0)
+          const primerActivo = datos.findIndex(([,v]) => v.dia + v.noche > 0)
+          if (primerActivo > 0) datos = datos.slice(primerActivo)
+
+          // 2. Quitar ceros finales si el sondaje alcanzó el metraje programado
+          const totalPerf = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
+          const prog = s.PROGRAMADO ?? null
+          if (prog !== null && totalPerf >= prog) {
+            let ultimoActivo = datos.length - 1
+            while (ultimoActivo > 0 && datos[ultimoActivo][1].dia + datos[ultimoActivo][1].noche === 0) {
+              ultimoActivo--
+            }
+            datos = datos.slice(0, ultimoActivo + 1)
+          }
+
           return { equipo:s.EQUIPO, ddhid:s.DDHID, datos, completado:s.completado, programado:s.PROGRAMADO ?? null }
         }).filter(g => g.datos.length > 0)
         setMaquinaGrupos(grupos)
@@ -243,7 +259,9 @@ export default function Dashboard() {
     if (!serieProg.length || !crAcum.current) return
     if (ciAcum.current) { ciAcum.current.destroy(); ciAcum.current = null }
 
-    const hoy = new Date().toISOString().slice(0,10)
+    // Fecha local (no UTC) para evitar desfase en Perú UTC-5
+    const _n = new Date()
+    const hoy = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`
     // Solo mostrar real hasta hoy
     const labels   = serieProg.map(p => fmtFecha(p.fecha))
     const dataProg = serieProg.map(p => p.acumProg)

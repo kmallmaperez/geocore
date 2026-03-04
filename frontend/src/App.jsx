@@ -53,7 +53,7 @@ function AppRoutes() {
       <Route path="/resumen"     element={<PrivateLayout><ResumenPage /></PrivateLayout>} />
       <Route path="/tabla/:tkey" element={<PrivateLayout><TablePage /></PrivateLayout>} />
       <Route path="/usuarios"    element={<PrivateLayout roles={['ADMIN']}><UsersPage /></PrivateLayout>} />
-      <Route path="/exportar"    element={<PrivateLayout roles={['ADMIN','SUPERVISOR']}><ExportPage /></PrivateLayout>} />
+      <Route path="/exportar"    element={<PrivateLayout><ExportPage /></PrivateLayout>} />
       <Route path="*"            element={<Navigate to="/" replace />} />
     </Routes>
   )

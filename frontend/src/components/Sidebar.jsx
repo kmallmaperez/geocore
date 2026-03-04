@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { inits, roleCls } from '../utils/tableDefs'
+import { useTheme } from '../context/ThemeContext'
 
 const NAV = [
   { section: 'Principal' },
@@ -22,7 +23,7 @@ const NAV = [
   { id: '/tabla/tormentas',        ico: '⛈',  lbl: 'Tormentas' },
   { section: 'Sistema' },
   { id: '/usuarios', ico: '👥', lbl: 'Usuarios',  roles: ['ADMIN'] },
-  { id: '/exportar', ico: '⬇️', lbl: 'Exportar',  roles: ['ADMIN','SUPERVISOR'] },
+  { id: '/exportar', ico: '⬇️', lbl: 'Exportar' },
 ]
 
 const TABLE_KEYS = ['perforacion','recepcion','recuperacion','fotografia','l_geotecnico','l_geologico','muestreo','corte','envios','batch','tormentas']
@@ -30,6 +31,7 @@ const TABLE_KEYS = ['perforacion','recepcion','recuperacion','fotografia','l_geo
 export default function Sidebar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { theme, toggle } = useTheme()
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
 
@@ -90,6 +92,9 @@ export default function Sidebar() {
               <span className={`bdg ${roleCls(user.role)}`}>{user.role}</span>
             </div>
           </div>
+          <button className="theme-btn" onClick={toggle}>
+            {theme === 'dark' ? '☀ Tema claro' : '🌙 Tema oscuro'}
+          </button>
           <button className="log-btn" onClick={logout}>Cerrar sesión</button>
         </div>
       </div>

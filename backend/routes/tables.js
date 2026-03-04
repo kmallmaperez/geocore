@@ -303,6 +303,49 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       }
     })
 
+    // ── Agregar la fecha del último reporte real si no está en el programa ──
+    // Garantiza que la línea ejecutada siempre llegue hasta el último dato disponible
+    const fechasProgSet = new Set(PROGRAMA.map(p => p.f))
+    const ultimaFechaReal = fechasOrdenadas[fechasOrdenadas.length - 1] // última fecha con datos reales
+
+    if (ultimaFechaReal && !fechasProgSet.has(ultimaFechaReal)) {
+      // Calcular acumulado real hasta esa fecha
+      const acumRealUlt = serieDiaria
+        .filter(d => d.fecha <= ultimaFechaReal)
+        .reduce((s, d) => s + (perfPorFecha[d.fecha] || 0), 0)
+
+      const maqUlt = Object.values(equipoInicio).filter(ini => ini <= ultimaFechaReal).length || 1
+
+      // Interpolar acumulado programado entre los puntos del programa que la rodean
+      const anterior  = [...serieProg].reverse().find(p => p.fecha < ultimaFechaReal)
+      const siguiente = serieProg.find(p => p.fecha > ultimaFechaReal)
+      let acumProgUlt = anterior?.acumProg ?? 0
+      if (anterior && siguiente) {
+        const diasTotal = Math.round((new Date(siguiente.fecha) - new Date(anterior.fecha)) / 86400000)
+        const diasUlt   = Math.round((new Date(ultimaFechaReal) - new Date(anterior.fecha)) / 86400000)
+        const ratio = diasTotal > 0 ? diasUlt / diasTotal : 0
+        acumProgUlt = parseFloat((anterior.acumProg + (siguiente.acumProg - anterior.acumProg) * ratio).toFixed(1))
+      }
+
+      // Acumulado ideal: tomar el ideal del punto anterior del programa y sumar días transcurridos
+      const diasDesdeAnt = anterior ? Math.round((new Date(ultimaFechaReal) - new Date(anterior.fecha)) / 86400000) : 0
+      const acumIdealAnt = anterior ? serieProg.find(p => p.fecha === anterior.fecha)?.acumIdeal ?? 0 : 0
+      const acumIdealUlt = parseFloat((acumIdealAnt + 35 * maqUlt * diasDesdeAnt).toFixed(1))
+
+      // Insertar en la posición correcta (orden cronológico)
+      const insertIdx = serieProg.findIndex(p => p.fecha > ultimaFechaReal)
+      const puntoExtra = {
+        fecha:     ultimaFechaReal,
+        acumProg:  acumProgUlt,
+        acumReal:  parseFloat(acumRealUlt.toFixed(1)),
+        acumIdeal: acumIdealUlt,
+        maquinas:  maqUlt,
+        esExtra:   true,
+      }
+      if (insertIdx === -1) serieProg.push(puntoExtra)
+      else serieProg.splice(insertIdx, 0, puntoExtra)
+    }
+
     // 2 últimos sondajes completados (por FECHA_FIN desc)
     const completados = porSondaje
       .filter(s => s.ESTADO === 'Completado' && s.FECHA_FIN)
