@@ -102,7 +102,10 @@ export default function MapaPage() {
       const pts = Array.isArray(cfg.puntos_ctrl) ? cfg.puntos_ctrl : []
       setPuntosCtrl(pts)
       if (pts.length >= 3) setTransform(calcTransform(pts))
-      setSondajes(sRes.data || [])
+      const sd = sRes.data || []
+      const uniq = [...new Set(sd.map(s => s.ESTADO))]
+      console.log('ESTADOS únicos:', uniq)
+      setSondajes(sd)
     }).catch(console.error)
     .finally(() => setLoading(false))
   }, [])
@@ -433,7 +436,7 @@ export default function MapaPage() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          onTouchStart={e => { if (tooltip) setTooltip(null); handleTouchStart(e) }}
+          onTouchStart={e => { if (tooltip && !e.target.closest('[data-dot]')) setTooltip(null); handleTouchStart(e) }}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
@@ -495,7 +498,7 @@ export default function MapaPage() {
               const baseR  = s.ESTADO === 'En Proceso' ? 9 : 7
               const r      = baseR / zoom
               return (
-                <div key={s.DDHID} style={{
+                <div key={s.DDHID} data-dot="1" style={{
                   position:'absolute', left:pos.x - r, top:pos.y - r,
                   width:r*2, height:r*2, borderRadius:'50%',
                   background:color, border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
