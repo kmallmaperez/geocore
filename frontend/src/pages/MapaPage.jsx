@@ -69,6 +69,7 @@ export default function MapaPage() {
   const dragStart     = useRef({ x:0, y:0, ox:0, oy:0 })
   const lastTouch     = useRef(null)   // para pan táctil
   const lastPinchDist = useRef(null)   // para pinch zoom
+  const longPressTimer= useRef(null)   // para long-press tooltip en móvil
 
   // ── Touch listeners no-pasivos (para poder llamar preventDefault) ──
   useEffect(() => {
@@ -432,7 +433,7 @@ export default function MapaPage() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          onTouchStart={handleTouchStart}
+          onTouchStart={e => { if (tooltip) setTooltip(null); handleTouchStart(e) }}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
@@ -479,7 +480,13 @@ export default function MapaPage() {
             })}
 
             {/* Sondajes */}
-            {calibrado && imgDispW > 0 && sondajes.filter(s => visibles[s.ESTADO] !== false).map(s => {
+            {calibrado && imgDispW > 0 && sondajes.filter(s => {
+              const est = (s.ESTADO || 'Pendiente').trim()
+              // Normalizar variantes posibles
+              if (est === 'Completado')       return visibles['Completado']
+              if (est === 'En Proceso')       return visibles['En Proceso']
+              return visibles['Pendiente']   // todo lo demás = Pendiente
+            }).map(s => {
               if (!s.ESTE || !s.NORTE) return null
               const pos = sondajePosDisplay(s)
               if (!pos) return null
@@ -495,49 +502,73 @@ export default function MapaPage() {
                   cursor:'pointer', zIndex:5, transition:'transform .15s',
                   boxShadow: s.ESTADO === 'En Proceso' ? `0 0 ${8/zoom}px ${color}` : `0 1px ${3/zoom}px rgba(0,0,0,.3)`,
                 }}
-                  onMouseEnter={e => { e.currentTarget.style.transform='scale(1.8)'; setTooltip({ s, x:pos.x, y:pos.y }) }}
-                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)';   setTooltip(null) }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform='scale(1.8)'
+                    const cx = pos.x * zoom + offset.x
+                    const cy = pos.y * zoom + offset.y
+                    setTooltip({ s, cx, cy })
+                  }}
+                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; setTooltip(null) }}
+                  onTouchStart={e => {
+                    e.stopPropagation()
+                    const cx = pos.x * zoom + offset.x
+                    const cy = pos.y * zoom + offset.y
+                    longPressTimer.current = setTimeout(() => setTooltip({ s, cx, cy }), 500)
+                  }}
+                  onTouchEnd={e => {
+                    e.stopPropagation()
+                    clearTimeout(longPressTimer.current)
+                  }}
+                  onTouchMove={() => clearTimeout(longPressTimer.current)}
                 />
               )
             })}
 
             {/* Tooltip */}
-            {tooltip && (() => {
-              // Escalar tooltip inversamente al zoom, con mínimo legible
-              const ts   = Math.max(0.7, Math.min(1, 1/zoom))
-              const tOff = 14/zoom
-              return (
-                <div style={{
-                  position:'absolute', left:tooltip.x + tOff, top:Math.max(0, tooltip.y - 10/zoom),
-                  background:'var(--sur)', border:`${1/zoom}px solid var(--brd)`,
-                  borderRadius:10/zoom, padding:`${10*ts}px ${14*ts}px`,
-                  fontSize:12*ts, zIndex:20, pointerEvents:'none', minWidth:180*ts,
-                  boxShadow:`0 ${4*ts}px ${20*ts}px rgba(0,0,0,.4)`,
-                  transform:`scale(${ts})`, transformOrigin:'top left',
-                }}>
-                  <div style={{ fontWeight:700, fontSize:14*ts, marginBottom:6*ts }}>{tooltip.s.DDHID}</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:3*ts }}>
-                    {tooltip.s.EQUIPO    && <span style={{ color:'var(--mut)' }}>🔧 {tooltip.s.EQUIPO}</span>}
-                    {tooltip.s.PLATAFORMA && <span style={{ color:'var(--mut)' }}>📍 {tooltip.s.PLATAFORMA}</span>}
-                    <span style={{ color: ESTADO_COLOR[tooltip.s.ESTADO], fontWeight:600 }}>● {tooltip.s.ESTADO}</span>
-                    <div style={{ marginTop:4*ts }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3*ts }}>
-                        <span style={{ color:'var(--mut)' }}>Prog: {tooltip.s.PROGRAMADO}m</span>
-                        <span style={{ color:'var(--grn)', fontWeight:600 }}>{Math.min(tooltip.s.PCT??0,100)}%</span>
-                      </div>
-                      <div style={{ background:'var(--sur2)', borderRadius:99, height:5*ts, overflow:'hidden' }}>
-                        <div style={{ width:`${Math.min(tooltip.s.PCT??0,100)}%`, height:'100%', background:ESTADO_COLOR[tooltip.s.ESTADO], borderRadius:99 }} />
-                      </div>
-                      <div style={{ marginTop:3*ts }}>Ejec: {tooltip.s.EJECUTADO}m</div>
-                    </div>
-                    {tooltip.s.FECHA_INICIO && tooltip.s.FECHA_INICIO !== '—' && (
-                      <span style={{ color:'var(--mut)', fontSize:11*ts }}>📅 {tooltip.s.FECHA_INICIO} → {tooltip.s.FECHA_FIN}</span>
-                    )}
-                  </div>
-                </div>
-              )
-            })()}
+
           </div>
+
+          {/* Tooltip — fuera de la capa transformada, posición relativa al contenedor */}
+          {tooltip && (() => {
+            const s   = tooltip.s
+            const pct = Math.min(s.PCT ?? 0, 100)
+            // Ajustar para que no se salga por la derecha o abajo
+            const TW      = 220  // ancho estimado tooltip
+            const TH      = 160  // alto estimado tooltip
+            const contW   = containerRef.current?.offsetWidth  || 600
+            const contH   = containerRef.current?.offsetHeight || 400
+            const leftPos = tooltip.cx + 14 + TW > contW ? tooltip.cx - TW - 10 : tooltip.cx + 14
+            const topPos  = Math.min(Math.max(4, tooltip.cy - 20), contH - TH - 40)
+            return (
+              <div style={{
+                position:'absolute', left:leftPos, top:topPos,
+                background:'var(--sur)', border:'1px solid var(--brd)',
+                borderRadius:10, padding:'10px 14px', fontSize:12,
+                zIndex:30, pointerEvents:'none', minWidth:190, maxWidth:220,
+                boxShadow:'0 4px 20px rgba(0,0,0,.5)',
+              }}>
+                <div style={{ fontWeight:700, fontSize:14, marginBottom:6 }}>{s.DDHID}</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                  {s.EQUIPO     && <span style={{ color:'var(--mut)' }}>🔧 {s.EQUIPO}</span>}
+                  {s.PLATAFORMA && <span style={{ color:'var(--mut)' }}>📍 {s.PLATAFORMA}</span>}
+                  <span style={{ color: ESTADO_COLOR[s.ESTADO], fontWeight:600 }}>● {s.ESTADO}</span>
+                  <div style={{ marginTop:4 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                      <span style={{ color:'var(--mut)' }}>Prog: {s.PROGRAMADO}m</span>
+                      <span style={{ color:'var(--grn)', fontWeight:600 }}>{pct}%</span>
+                    </div>
+                    <div style={{ background:'var(--sur2)', borderRadius:99, height:5, overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', background:ESTADO_COLOR[s.ESTADO], borderRadius:99 }} />
+                    </div>
+                    <div style={{ marginTop:3 }}>Ejec: {s.EJECUTADO}m</div>
+                  </div>
+                  {s.FECHA_INICIO && s.FECHA_INICIO !== '—' && (
+                    <span style={{ color:'var(--mut)', fontSize:11 }}>📅 {s.FECHA_INICIO} → {s.FECHA_FIN}</span>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Controles zoom */}
           <div style={{ position:'absolute', bottom:50, right:14, display:'flex', flexDirection:'column', gap:4, zIndex:15 }}>
