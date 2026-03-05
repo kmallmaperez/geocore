@@ -13,7 +13,8 @@ const mapaRoutes    = require('./routes/mapa')
 const app = express()
 
 app.use(cors({ origin: '*' }))
-app.use(express.json({ limit: '20mb' }))
+app.use(express.json({ limit: '50mb' }))
+app.use(express.urlencoded({ limit: '50mb', extended: true }))
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date() }))
 
