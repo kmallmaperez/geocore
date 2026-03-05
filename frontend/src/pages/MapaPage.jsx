@@ -71,21 +71,23 @@ export default function MapaPage() {
   const lastPinchDist = useRef(null)   // para pinch zoom
   const longPressTimer= useRef(null)   // para long-press tooltip en móvil
 
-  // ── Touch listeners no-pasivos (para poder llamar preventDefault) ──
+  // ── Listeners no-pasivos (wheel + touch) ────────────────────
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const opts = { passive: false }
+    el.addEventListener('wheel',      handleWheel,      opts)
     el.addEventListener('touchstart', handleTouchStart, opts)
     el.addEventListener('touchmove',  handleTouchMove,  opts)
     el.addEventListener('touchend',   handleTouchEnd,   opts)
     return () => {
+      el.removeEventListener('wheel',      handleWheel,      opts)
       el.removeEventListener('touchstart', handleTouchStart, opts)
       el.removeEventListener('touchmove',  handleTouchMove,  opts)
       el.removeEventListener('touchend',   handleTouchEnd,   opts)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset, zoom, modo])
+  }, [offset, zoom, modo, tooltip])
 
   // ── Cargar config y sondajes ──────────────────────────────────
   useEffect(() => {
@@ -103,9 +105,10 @@ export default function MapaPage() {
       setPuntosCtrl(pts)
       if (pts.length >= 3) setTransform(calcTransform(pts))
       const sd = sRes.data || []
-      const uniq = [...new Set(sd.map(s => s.ESTADO))]
-      console.log('ESTADOS únicos:', uniq)
-      setSondajes(sd)
+      // Dedup por DDHID (puede haber duplicados en programa_general)
+      const seen = new Map()
+      sd.forEach(s => seen.set(s.DDHID, s))
+      setSondajes([...seen.values()])
     }).catch(console.error)
     .finally(() => setLoading(false))
   }, [])
@@ -198,11 +201,16 @@ export default function MapaPage() {
 
   function handleTouchStart(e) {
     e.preventDefault()
+    // Cerrar tooltip si toca fuera de un punto
+    if (!e.target.closest('[data-dot]')) {
+      setTooltip(null)
+    }
     if (e.touches.length === 1) {
       const t = e.touches[0]
       lastTouch.current     = { x: t.clientX, y: t.clientY, ox: offset.x, oy: offset.y }
       lastPinchDist.current = null
     } else if (e.touches.length === 2) {
+      clearTimeout(longPressTimer.current)
       lastPinchDist.current = getTouchDist(e.touches[0], e.touches[1])
       lastTouch.current     = null
     }
@@ -210,6 +218,7 @@ export default function MapaPage() {
 
   function handleTouchMove(e) {
     e.preventDefault()
+    clearTimeout(longPressTimer.current) // mover cancela long press
     if (e.touches.length === 1 && lastTouch.current && modo !== 'georef') {
       const t = e.touches[0]
       setOffset({
@@ -431,14 +440,12 @@ export default function MapaPage() {
         <div
           ref={containerRef}
           style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100dvh - 236px)', minHeight:'300px', cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
-          onWheel={handleWheel}
+          /* wheel handled via useEffect non-passive */
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          onTouchStart={e => { if (tooltip && !e.target.closest('[data-dot]')) setTooltip(null); handleTouchStart(e) }}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
+          /* touch handled via useEffect non-passive */
         >
           {/* Capa transformada: imagen + puntos */}
           <div style={{ transform:`translate(${offset.x}px,${offset.y}px) scale(${zoom})`, transformOrigin:'0 0', position:'relative', display:'inline-block' }}>
@@ -514,15 +521,24 @@ export default function MapaPage() {
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; setTooltip(null) }}
                   onTouchStart={e => {
                     e.stopPropagation()
-                    const cx = pos.x * zoom + offset.x
-                    const cy = pos.y * zoom + offset.y
-                    longPressTimer.current = setTimeout(() => setTooltip({ s, cx, cy }), 500)
+                    e.preventDefault()
+                    // Calcular posición en el contenedor en el momento del toque
+                    const touch = e.touches[0]
+                    const rect  = containerRef.current?.getBoundingClientRect()
+                    const cx    = rect ? touch.clientX - rect.left : pos.x * zoom + offset.x
+                    const cy    = rect ? touch.clientY - rect.top  : pos.y * zoom + offset.y
+                    longPressTimer.current = setTimeout(() => {
+                      setTooltip({ s, cx: Math.min(cx, (rect?.width||600) - 240), cy })
+                    }, 400)
                   }}
                   onTouchEnd={e => {
                     e.stopPropagation()
                     clearTimeout(longPressTimer.current)
                   }}
-                  onTouchMove={() => clearTimeout(longPressTimer.current)}
+                  onTouchMove={e => {
+                    e.stopPropagation()
+                    clearTimeout(longPressTimer.current)
+                  }}
                 />
               )
             })}
