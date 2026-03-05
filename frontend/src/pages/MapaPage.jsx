@@ -74,40 +74,45 @@ export default function MapaPage() {
   }, [puntosCtrl])
 
   // ── Subir imagen ──────────────────────────────────────────────
-  function handleFileChange(e) {
-    const file = e.target.files[0]
+  async function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
     if (file.size > 15 * 1024 * 1024) { show('Imagen demasiado grande (máx 15MB)', 'err'); return }
     setUploading(true)
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const dataUrl = ev.result
-      const base64  = dataUrl.split(',')[1]
-      const img     = new Image()
-      img.onload = () => {
-        api.post('/mapa/upload', {
-          base64, mimeType: file.type,
-          width: img.naturalWidth, height: img.naturalHeight
-        })
-          .then(() => {
-            setConfig(prev => ({
-              ...prev,
-              imagen_b64:  base64,
-              imagen_tipo: file.type,
-              imagen_w:    img.naturalWidth,
-              imagen_h:    img.naturalHeight,
-              puntos_ctrl: []
-            }))
-            setPuntosCtrl([])
-            setTransform(null)
-            show('Plano subido correctamente ✓', 'ok')
-          })
-          .catch(err => show('Error: ' + (err.response?.data?.error || err.message), 'err'))
-          .finally(() => setUploading(false))
-      }
-      img.src = dataUrl
+    try {
+      // 1. Leer como base64
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload  = e => resolve(e.target.result)
+        reader.onerror = () => reject(new Error('Error leyendo archivo'))
+        reader.readAsDataURL(file)
+      })
+
+      // 2. Obtener dimensiones
+      const { w, h } = await new Promise((resolve, reject) => {
+        const img = new Image()
+        img.onload  = () => resolve({ w: img.naturalWidth, h: img.naturalHeight })
+        img.onerror = () => reject(new Error('Error cargando imagen'))
+        img.src = dataUrl
+      })
+
+      // 3. Enviar al backend
+      const base64 = dataUrl.split(',')[1]
+      await api.post('/mapa/upload', { base64, mimeType: file.type, width: w, height: h })
+
+      // 4. Actualizar estado
+      setImgSrc(dataUrl)
+      setPuntosCtrl([])
+      setTransform(null)
+      setZoom(1)
+      setOffset({ x: 0, y: 0 })
+      show('Plano subido correctamente ✓', 'ok')
+    } catch (err) {
+      show('Error: ' + (err.response?.data?.error || err.message || 'Error desconocido'), 'err')
+    } finally {
+      setUploading(false)
     }
-    reader.readAsDataURL(file)
   }
 
   // ── Eliminar plano ────────────────────────────────────────────
