@@ -1,9 +1,11 @@
 const express  = require('express')
+const multer   = require('multer')
 const db       = require('../data/db')
 const { authMiddleware, requireRole } = require('../middleware/auth')
 const { createClient } = require('@supabase/supabase-js')
 
-const router   = express.Router()
+const router  = express.Router()
+const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 
 function getSupabase() {
   return createClient(
@@ -41,15 +43,15 @@ router.get('/config', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-// POST /api/mapa/upload — subir imagen (solo ADMIN)
-router.post('/upload', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+// POST /api/mapa/upload — subir imagen (solo ADMIN), multipart/form-data
+router.post('/upload', authMiddleware, requireRole('ADMIN'), upload.single('plano'), async (req, res) => {
   try {
-    const { base64, filename, mimeType, width, height } = req.body
-    if (!base64) return res.status(400).json({ error: 'No se recibió imagen' })
+    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' })
 
-    const supabase = getSupabase()
-    const buffer   = Buffer.from(base64, 'base64')
-    const path     = `plano_${Date.now()}.${filename.split('.').pop()}`
+    const { width, height } = req.body
+    const supabase  = getSupabase()
+    const ext       = req.file.originalname.split('.').pop()
+    const filePath  = `plano_${Date.now()}.${ext}`
 
     // Eliminar imagen anterior si existe
     const prev = await db.query('SELECT imagen_url FROM mapa_config ORDER BY id LIMIT 1')
@@ -60,14 +62,14 @@ router.post('/upload', authMiddleware, requireRole('ADMIN'), async (req, res) =>
 
     const { error: upErr } = await supabase.storage
       .from('planos')
-      .upload(path, buffer, { contentType: mimeType, upsert: true })
+      .upload(filePath, req.file.buffer, { contentType: req.file.mimetype, upsert: true })
     if (upErr) throw new Error(upErr.message)
 
-    const { data: { publicUrl } } = supabase.storage.from('planos').getPublicUrl(path)
+    const { data: { publicUrl } } = supabase.storage.from('planos').getPublicUrl(filePath)
 
     await db.query(
       `UPDATE mapa_config SET imagen_url=$1, imagen_w=$2, imagen_h=$3, puntos_ctrl='[]', updated_at=NOW()`,
-      [publicUrl, width, height]
+      [publicUrl, parseInt(width)||0, parseInt(height)||0]
     )
     res.json({ url: publicUrl })
   } catch (err) { res.status(500).json({ error: err.message }) }

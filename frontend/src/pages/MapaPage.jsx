@@ -124,27 +124,42 @@ export default function MapaPage() {
   function handleFileChange(e) {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 40 * 1024 * 1024) { show('Imagen demasiado grande (máx 40MB)', 'err'); return }
+    if (file.size > 50 * 1024 * 1024) { show('Imagen demasiado grande (máx 50MB)', 'err'); return }
     setUploading(true)
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const img = new Image()
-      img.onload = () => {
-        const base64 = ev.result.split(',')[1]
-        api.post('/mapa/upload', {
-          base64, filename: file.name, mimeType: file.type,
-          width: img.naturalWidth, height: img.naturalHeight
-        }).then(r => {
-          setConfig(prev => ({ ...prev, imagen_url: r.data.url, imagen_w: img.naturalWidth, imagen_h: img.naturalHeight, puntos_ctrl: [] }))
+
+    // Leer dimensiones naturales de la imagen
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      URL.revokeObjectURL(objectUrl)
+
+      // Enviar como multipart/form-data (no base64) para soportar archivos grandes
+      const formData = new FormData()
+      formData.append('plano', file)
+      formData.append('width',  w)
+      formData.append('height', h)
+
+      const token = localStorage.getItem('token') || ''
+      const baseURL = import.meta.env.VITE_API_URL || '/api'
+      fetch(`${baseURL}/mapa/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error)
+          setConfig(prev => ({ ...prev, imagen_url: data.url, imagen_w: w, imagen_h: h, puntos_ctrl: [] }))
           setPuntosCtrl([])
           setTransform(null)
           show('Plano subido correctamente ✓', 'ok')
-        }).catch(err => show('Error: ' + err.message, 'err'))
+        })
+        .catch(err => show('Error: ' + err.message, 'err'))
         .finally(() => setUploading(false))
-      }
-      img.src = ev.result
     }
-    reader.readAsDataURL(file)
+    img.src = objectUrl
   }
 
   // ── Eliminar plano ───────────────────────────────────────────
