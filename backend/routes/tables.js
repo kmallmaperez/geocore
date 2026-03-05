@@ -110,6 +110,8 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
         FECHA_INICIO: fechaInicio || '—',
         FECHA_FIN:    fechaFin    || '—',
         PCT: pct, _estadoManual: !!overrides[p.DDHID],
+        ESTE: parseFloat(p.ESTE) || null,
+        NORTE: parseFloat(p.NORTE) || null,
       }
     })
     res.json(resumen)

@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import Toast, { useToast } from '../components/Toast'
 
-// ── Transformación afín: 3 puntos de control → matriz ────────────
-function calcTransform(puntos) {
-  if (puntos.length < 3) return null
-  const [p0, p1, p2] = puntos
+// ── Transformación afín ──────────────────────────────────────────
+function calcTransform(pts) {
+  if (pts.length < 3) return null
+  const [p0, p1, p2] = pts
   const det = p0.este*(p1.norte-p2.norte) + p1.este*(p2.norte-p0.norte) + p2.este*(p0.norte-p1.norte)
   if (Math.abs(det) < 1e-10) return null
   const a = (p0.px*(p1.norte-p2.norte) + p1.px*(p2.norte-p0.norte) + p2.px*(p0.norte-p1.norte)) / det
@@ -18,6 +18,17 @@ function calcTransform(puntos) {
   return { a, b, c, d, e, f }
 }
 
+// Pixel natural → coordenada
+function pxToCoord(px, py, T) {
+  // Invertir la transformación afín
+  const det = T.a*T.e - T.b*T.d
+  if (Math.abs(det) < 1e-10) return null
+  const este  = (T.e*(px-T.c) - T.b*(py-T.f)) / det
+  const norte = (T.a*(py-T.f) - T.d*(px-T.c)) / det
+  return { este, norte }
+}
+
+// Coordenada → pixel natural
 function coordToPx(este, norte, T) {
   return { px: T.a*este + T.b*norte + T.c, py: T.d*este + T.e*norte + T.f }
 }
@@ -33,8 +44,7 @@ export default function MapaPage() {
   const { toast, show } = useToast()
   const isAdmin         = user?.role === 'ADMIN'
 
-  // ── Estado ───────────────────────────────────────────────────
-  const [imgDataUrl,  setImgDataUrl]  = useState(null)   // data:image/...;base64,...
+  const [imgDataUrl,  setImgDataUrl]  = useState(null)
   const [imgNatW,     setImgNatW]     = useState(0)
   const [imgNatH,     setImgNatH]     = useState(0)
   const [imgDispW,    setImgDispW]    = useState(0)
@@ -44,16 +54,18 @@ export default function MapaPage() {
   const [sondajes,    setSondajes]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [uploading,   setUploading]   = useState(false)
-  const [modo,        setModo]        = useState('ver')   // 'ver' | 'calibrar'
+  const [modo,        setModo]        = useState('ver')
   const [pendPx,      setPendPx]      = useState(null)
   const [formCoord,   setFormCoord]   = useState({ este: '', norte: '' })
   const [zoom,        setZoom]        = useState(1)
   const [offset,      setOffset]      = useState({ x: 0, y: 0 })
   const [tooltip,     setTooltip]     = useState(null)
+  const [mouseCoord,  setMouseCoord]  = useState(null) // {este, norte} bajo el cursor
 
-  const imgRef    = useRef(null)
-  const dragging  = useRef(false)
-  const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 })
+  const containerRef  = useRef(null)
+  const imgRef        = useRef(null)
+  const dragging      = useRef(false)
+  const dragStart     = useRef({ x:0, y:0, ox:0, oy:0 })
 
   // ── Cargar config y sondajes ──────────────────────────────────
   useEffect(() => {
@@ -80,66 +92,54 @@ export default function MapaPage() {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    if (file.size > 15 * 1024 * 1024) { show('Máximo 15MB', 'err'); return }
+    if (file.size > 15*1024*1024) { show('Máximo 15MB', 'err'); return }
     setUploading(true)
     try {
-      // Leer como base64
       const dataUrl = await new Promise((res, rej) => {
         const r = new FileReader()
         r.onload  = ev => res(ev.target.result)
         r.onerror = ()  => rej(new Error('Error leyendo archivo'))
         r.readAsDataURL(file)
       })
-      // Obtener dimensiones
       const { w, h } = await new Promise((res, rej) => {
         const img = new Image()
         img.onload  = () => res({ w: img.naturalWidth, h: img.naturalHeight })
         img.onerror = ()  => rej(new Error('Imagen inválida'))
         img.src = dataUrl
       })
-      // Enviar al backend
       const base64 = dataUrl.split(',')[1]
       await api.post('/mapa/upload', { base64, mimeType: file.type, width: w, height: h })
-      // Actualizar estado local
       setImgDataUrl(dataUrl)
-      setImgNatW(w)
-      setImgNatH(h)
-      setImgDispW(0)
-      setImgDispH(0)
-      setPuntosCtrl([])
-      setTransform(null)
-      setZoom(1)
-      setOffset({ x: 0, y: 0 })
+      setImgNatW(w); setImgNatH(h)
+      setImgDispW(0); setImgDispH(0)
+      setPuntosCtrl([]); setTransform(null)
+      setZoom(1); setOffset({ x:0, y:0 })
       show('Plano subido ✓', 'ok')
     } catch (err) {
       show('Error: ' + (err.response?.data?.error || err.message), 'err')
-    } finally {
-      setUploading(false)
-    }
+    } finally { setUploading(false) }
   }
 
   // ── Eliminar plano ────────────────────────────────────────────
   function handleEliminar() {
-    if (!window.confirm('¿Eliminar el plano? Se perderán los puntos de calibración.')) return
+    if (!window.confirm('¿Eliminar el plano? Se perderán los puntos de georeferencia.')) return
     api.delete('/mapa/imagen').then(() => {
-      setImgDataUrl(null)
-      setImgNatW(0); setImgNatH(0)
-      setPuntosCtrl([])
-      setTransform(null)
-      setModo('ver')
+      setImgDataUrl(null); setImgNatW(0); setImgNatH(0)
+      setPuntosCtrl([]); setTransform(null); setModo('ver')
       show('Plano eliminado', 'ok')
     }).catch(() => show('Error al eliminar', 'err'))
   }
 
-  // ── Calibración ───────────────────────────────────────────────
+  // ── Georeferenciación: click en imagen ────────────────────────
   function handleImgClick(e) {
-    if (modo !== 'calibrar' || !imgRef.current) return
+    if (modo !== 'georef' || !imgRef.current) return
     const rect  = imgRef.current.getBoundingClientRect()
     const dispX = e.clientX - rect.left
     const dispY = e.clientY - rect.top
-    const natX  = Math.round(dispX * (imgNatW / (imgDispW || 1)))
-    const natY  = Math.round(dispY * (imgNatH / (imgDispH || 1)))
-    setPendPx({ px: natX, py: natY })
+    // Convertir display → pixel natural (sin zoom, la imagen ya está escalada)
+    const natX = Math.round(dispX * (imgNatW / (imgDispW || 1)))
+    const natY = Math.round(dispY * (imgNatH / (imgDispH || 1)))
+    setPendPx({ px: natX, py: natY, dispX, dispY })
     setFormCoord({ este: '', norte: '' })
   }
 
@@ -161,36 +161,66 @@ export default function MapaPage() {
     api.put('/mapa/puntos', { puntos: nuevos })
   }
 
-  function limpiarPuntos() {
-    setPuntosCtrl([])
-    setTransform(null)
-    api.put('/mapa/puntos', { puntos: [] }).then(() => show('Puntos eliminados', 'ok'))
-  }
-
-  // ── Zoom y pan ────────────────────────────────────────────────
+  // ── Zoom centrado en el cursor ────────────────────────────────
   function handleWheel(e) {
     e.preventDefault()
-    setZoom(z => Math.min(Math.max(z * (e.deltaY > 0 ? 0.85 : 1.18), 0.2), 10))
+    const factor = e.deltaY > 0 ? 0.85 : 1.18
+    const rect   = containerRef.current.getBoundingClientRect()
+    // Posición del cursor relativa al contenedor
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+    setZoom(z => {
+      const newZoom  = Math.min(Math.max(z * factor, 0.2), 10)
+      // Ajustar offset para que el punto bajo el cursor no se mueva
+      setOffset(o => ({
+        x: mouseX - (mouseX - o.x) * (newZoom / z),
+        y: mouseY - (mouseY - o.y) * (newZoom / z),
+      }))
+      return newZoom
+    })
   }
+
   function handleMouseDown(e) {
-    if (modo === 'calibrar') return
+    if (modo === 'georef') return
     dragging.current  = true
     dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }
   }
   function handleMouseMove(e) {
-    if (!dragging.current) return
-    setOffset({ x: dragStart.current.ox + e.clientX - dragStart.current.x, y: dragStart.current.oy + e.clientY - dragStart.current.y })
+    if (dragging.current) {
+      setOffset({ x: dragStart.current.ox + e.clientX - dragStart.current.x, y: dragStart.current.oy + e.clientY - dragStart.current.y })
+    }
+    // Mostrar coordenadas bajo el cursor si hay transformación
+    if (transform && imgRef.current && imgNatW > 0) {
+      const rect  = imgRef.current.getBoundingClientRect()
+      const dispX = e.clientX - rect.left
+      const dispY = e.clientY - rect.top
+      if (dispX >= 0 && dispY >= 0 && dispX <= imgDispW && dispY <= imgDispH) {
+        const natX  = dispX * (imgNatW / (imgDispW || 1))
+        const natY  = dispY * (imgNatH / (imgDispH || 1))
+        const coord = pxToCoord(natX, natY, transform)
+        if (coord) setMouseCoord({ este: coord.este.toFixed(0), norte: coord.norte.toFixed(0) })
+        else setMouseCoord(null)
+      } else {
+        setMouseCoord(null)
+      }
+    }
   }
-  function handleMouseUp() { dragging.current = false }
+  function handleMouseUp()    { dragging.current = false }
+  function handleMouseLeave() { dragging.current = false; setMouseCoord(null) }
 
-  // ── Posición de sondaje en display ────────────────────────────
+  // ── Posición display de un sondaje ────────────────────────────
   function sondajePosDisplay(s) {
     if (!transform || !s.ESTE || !s.NORTE || !imgDispW || !imgNatW) return null
-    const { px, py } = coordToPx(parseFloat(s.ESTE), parseFloat(s.NORTE), transform)
+    const { px, py } = coordToPx(s.ESTE, s.NORTE, transform)
     return { x: px * (imgDispW / imgNatW), y: py * (imgDispH / imgNatH) }
   }
 
-  // ── Render ────────────────────────────────────────────────────
+  // Posición display de un punto de control guardado
+  function ptrlPosDisplay(p) {
+    if (!imgDispW || !imgNatW) return null
+    return { x: p.px * (imgDispW / imgNatW), y: p.py * (imgDispH / imgNatH) }
+  }
+
   const tieneImagen = !!imgDataUrl
   const calibrado   = transform !== null
 
@@ -218,9 +248,9 @@ export default function MapaPage() {
             </label>
             {tieneImagen && <button className="btn btn-red" onClick={handleEliminar}>🗑 Eliminar</button>}
             {tieneImagen && (
-              <button className={modo === 'calibrar' ? 'btn btn-acc' : 'btn btn-out'}
-                onClick={() => { setModo(m => m === 'calibrar' ? 'ver' : 'calibrar'); setPendPx(null) }}>
-                {modo === 'calibrar' ? '✅ Calibrando...' : '📍 Calibrar'}
+              <button className={modo === 'georef' ? 'btn btn-acc' : 'btn btn-out'}
+                onClick={() => { setModo(m => m === 'georef' ? 'ver' : 'georef'); setPendPx(null) }}>
+                {modo === 'georef' ? '✅ Georeferenciando...' : '📍 Georeferenciar'}
               </button>
             )}
           </div>
@@ -236,17 +266,23 @@ export default function MapaPage() {
         </div>
       )}
 
-      {/* Panel calibración */}
-      {isAdmin && tieneImagen && modo === 'calibrar' && (
+      {/* Panel georeferenciación */}
+      {isAdmin && tieneImagen && modo === 'georef' && (
         <div className="ch-card" style={{ marginBottom:12, padding:'12px 16px' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
             <div style={{ fontSize:13 }}>
-              <strong>Modo calibración</strong>
+              <strong>Georeferenciación</strong>
               <span style={{ color:'var(--mut)', marginLeft:8 }}>
-                {calibrado ? `✅ ${puntosCtrl.length} puntos — haz clic para agregar más` : `Haz clic en el plano e ingresa la coordenada (${puntosCtrl.length}/3 mínimo)`}
+                {calibrado
+                  ? `✅ ${puntosCtrl.length} puntos — haz clic para agregar más`
+                  : `Haz clic en el plano e ingresa la coordenada ESTE/NORTE (${puntosCtrl.length}/3 mínimo)`}
               </span>
             </div>
-            {puntosCtrl.length > 0 && <button className="btn btn-red btn-sm" onClick={limpiarPuntos}>🗑 Limpiar</button>}
+            {puntosCtrl.length > 0 && (
+              <button className="btn btn-red btn-sm" onClick={() => { setPuntosCtrl([]); setTransform(null); api.put('/mapa/puntos', { puntos: [] }).then(() => show('Puntos eliminados', 'ok')) }}>
+                🗑 Limpiar puntos
+              </button>
+            )}
           </div>
           {puntosCtrl.length > 0 && (
             <div style={{ marginTop:10, display:'flex', flexWrap:'wrap', gap:6 }}>
@@ -263,9 +299,9 @@ export default function MapaPage() {
             <div style={{ marginTop:10, background:'var(--sur2)', border:'1px solid var(--acc)', borderRadius:8, padding:'10px 14px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
               <span style={{ fontSize:12, color:'var(--acc)', fontWeight:600 }}>📍 ¿Coordenada de este punto?</span>
               <input type="number" placeholder="ESTE"  value={formCoord.este}  onChange={e => setFormCoord(p => ({...p, este:  e.target.value}))}
-                style={{ width:130, background:'var(--bg)', border:'1px solid var(--brd)', borderRadius:6, padding:'6px 10px', color:'var(--txt)', fontSize:13, outline:'none' }} />
+                style={{ width:140, background:'var(--bg)', border:'1px solid var(--brd)', borderRadius:6, padding:'6px 10px', color:'var(--txt)', fontSize:13, outline:'none' }} />
               <input type="number" placeholder="NORTE" value={formCoord.norte} onChange={e => setFormCoord(p => ({...p, norte: e.target.value}))}
-                style={{ width:130, background:'var(--bg)', border:'1px solid var(--brd)', borderRadius:6, padding:'6px 10px', color:'var(--txt)', fontSize:13, outline:'none' }} />
+                style={{ width:140, background:'var(--bg)', border:'1px solid var(--brd)', borderRadius:6, padding:'6px 10px', color:'var(--txt)', fontSize:13, outline:'none' }} />
               <button className="btn btn-grn btn-sm" onClick={confirmPunto}>✓ Confirmar</button>
               <button className="btn btn-out btn-sm" onClick={() => setPendPx(null)}>Cancelar</button>
             </div>
@@ -284,7 +320,7 @@ export default function MapaPage() {
           ))}
           {calibrado
             ? <span style={{ fontSize:11, color:'var(--grn)' }}>✅ {sondajes.filter(s => s.ESTE && s.NORTE).length} sondajes con coordenadas</span>
-            : isAdmin && <span style={{ fontSize:11, color:'var(--mut)', fontStyle:'italic' }}>⚠ Faltan {Math.max(0, 3-puntosCtrl.length)} puntos de control</span>
+            : isAdmin && <span style={{ fontSize:11, color:'var(--mut)', fontStyle:'italic' }}>⚠ Faltan {Math.max(0, 3-puntosCtrl.length)} puntos de georeferencia</span>
           }
           <span style={{ fontSize:11, color:'var(--mut)', marginLeft:'auto' }}>🖱 Scroll zoom · Arrastra para mover</span>
         </div>
@@ -292,43 +328,56 @@ export default function MapaPage() {
 
       {/* Mapa */}
       {tieneImagen && (
-        <div style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100vh - 280px)', minHeight:400, cursor: modo === 'calibrar' ? 'crosshair' : 'grab', userSelect:'none' }}
-          onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
-
+        <div
+          ref={containerRef}
+          style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100vh - 300px)', minHeight:400, cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Capa transformada: imagen + puntos */}
           <div style={{ transform:`translate(${offset.x}px,${offset.y}px) scale(${zoom})`, transformOrigin:'0 0', position:'relative', display:'inline-block' }}>
 
-            {/* Imagen del plano */}
-            <img ref={imgRef} src={imgDataUrl} alt="Plano" draggable={false}
+            <img
+              ref={imgRef}
+              src={imgDataUrl}
+              alt="Plano"
+              draggable={false}
               onClick={handleImgClick}
               onLoad={e => { setImgDispW(e.target.offsetWidth); setImgDispH(e.target.offsetHeight) }}
-              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100vh - 280px)' }}
+              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100vh - 300px)' }}
             />
 
-            {/* Punto pendiente de calibración */}
-            {pendPx && modo === 'calibrar' && imgDispW > 0 && (
+            {/* Punto pendiente de georeferenciación */}
+            {pendPx && modo === 'georef' && imgDispW > 0 && (
               <div style={{
                 position:'absolute',
-                left: pendPx.px * (imgDispW/imgNatW) - 10,
-                top:  pendPx.py * (imgDispH/imgNatH) - 10,
-                width:20, height:20, borderRadius:'50%',
-                background:'rgba(245,158,11,.9)', border:'3px solid #fff',
+                left: pendPx.px * (imgDispW/imgNatW) - 12,
+                top:  pendPx.py * (imgDispH/imgNatH) - 12,
+                width:24, height:24, borderRadius:'50%',
+                background:'rgba(245,158,11,.95)', border:'3px solid #fff',
                 pointerEvents:'none', zIndex:10,
-                boxShadow:'0 0 0 4px rgba(245,158,11,.3)',
+                boxShadow:'0 0 0 4px rgba(245,158,11,.4)',
               }} />
             )}
 
-            {/* Puntos de control guardados */}
-            {modo === 'calibrar' && imgDispW > 0 && puntosCtrl.map((p, i) => (
-              <div key={i} style={{
-                position:'absolute',
-                left: p.px * (imgDispW/imgNatW) - 8,
-                top:  p.py * (imgDispH/imgNatH) - 8,
-                width:16, height:16, borderRadius:'50%',
-                background:'#3b82f6', border:'2px solid #fff',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontSize:8, color:'#fff', fontWeight:700, pointerEvents:'none', zIndex:9,
-              }}>{i+1}</div>
-            ))}
+            {/* Puntos de control guardados — siempre visibles en modo georef */}
+            {modo === 'georef' && imgDispW > 0 && puntosCtrl.map((p, i) => {
+              const pos = ptrlPosDisplay(p)
+              if (!pos) return null
+              return (
+                <div key={i} style={{
+                  position:'absolute', left: pos.x - 10, top: pos.y - 10,
+                  width:20, height:20, borderRadius:'50%',
+                  background:'#3b82f6', border:'2.5px solid #fff',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:9, color:'#fff', fontWeight:700, pointerEvents:'none', zIndex:9,
+                  boxShadow:'0 2px 6px rgba(0,0,0,.4)',
+                }}>{i+1}</div>
+              )
+            })}
 
             {/* Sondajes */}
             {calibrado && imgDispW > 0 && sondajes.map(s => {
@@ -339,13 +388,13 @@ export default function MapaPage() {
               const r = s.ESTADO === 'En Proceso' ? 9 : 7
               return (
                 <div key={s.DDHID} style={{
-                  position:'absolute', left:pos.x-r, top:pos.y-r,
+                  position:'absolute', left:pos.x - r, top:pos.y - r,
                   width:r*2, height:r*2, borderRadius:'50%',
-                  background:color, border:'2px solid rgba(255,255,255,.7)',
+                  background:color, border:'2px solid rgba(255,255,255,.8)',
                   cursor:'pointer', zIndex:5, transition:'transform .15s',
-                  boxShadow: s.ESTADO === 'En Proceso' ? `0 0 8px ${color}` : 'none',
+                  boxShadow: s.ESTADO === 'En Proceso' ? `0 0 10px ${color}` : '0 1px 4px rgba(0,0,0,.3)',
                 }}
-                  onMouseEnter={e => { e.currentTarget.style.transform='scale(1.7)'; setTooltip({ s, x:pos.x, y:pos.y }) }}
+                  onMouseEnter={e => { e.currentTarget.style.transform='scale(1.8)'; setTooltip({ s, x:pos.x, y:pos.y }) }}
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)';   setTooltip(null) }}
                 />
               )
@@ -354,7 +403,7 @@ export default function MapaPage() {
             {/* Tooltip */}
             {tooltip && (
               <div style={{
-                position:'absolute', left:tooltip.x+14, top:tooltip.y-10,
+                position:'absolute', left:tooltip.x+14, top:Math.max(0, tooltip.y-10),
                 background:'var(--sur)', border:'1px solid var(--brd)',
                 borderRadius:10, padding:'10px 14px', fontSize:12,
                 zIndex:20, pointerEvents:'none', minWidth:190,
@@ -384,13 +433,52 @@ export default function MapaPage() {
           </div>
 
           {/* Controles zoom */}
-          <div style={{ position:'absolute', bottom:14, right:14, display:'flex', flexDirection:'column', gap:4, zIndex:15 }}>
-            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:18 }} onClick={() => setZoom(z => Math.min(z*1.3,10))}>+</button>
-            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:18 }} onClick={() => setZoom(z => Math.max(z*0.77,0.2))}>−</button>
-            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:13 }} onClick={() => { setZoom(1); setOffset({x:0,y:0}) }}>⌂</button>
+          <div style={{ position:'absolute', bottom:50, right:14, display:'flex', flexDirection:'column', gap:4, zIndex:15 }}>
+            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:18 }} onClick={() => {
+              const rect = containerRef.current.getBoundingClientRect()
+              const cx = rect.width/2, cy = rect.height/2
+              const factor = 1.3
+              setZoom(z => {
+                const nz = Math.min(z*factor, 10)
+                setOffset(o => ({ x: cx - (cx-o.x)*(nz/z), y: cy - (cy-o.y)*(nz/z) }))
+                return nz
+              })
+            }}>+</button>
+            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:18 }} onClick={() => {
+              const rect = containerRef.current.getBoundingClientRect()
+              const cx = rect.width/2, cy = rect.height/2
+              const factor = 0.77
+              setZoom(z => {
+                const nz = Math.max(z*factor, 0.2)
+                setOffset(o => ({ x: cx - (cx-o.x)*(nz/z), y: cy - (cy-o.y)*(nz/z) }))
+                return nz
+              })
+            }}>−</button>
+            <button className="btn btn-out btn-sm" style={{ width:32, height:32, padding:0, fontSize:13 }} title="Reset"
+              onClick={() => { setZoom(1); setOffset({x:0,y:0}) }}>⌂</button>
           </div>
-          <div style={{ position:'absolute', bottom:14, left:14, fontSize:11, color:'var(--mut)', background:'var(--sur)', border:'1px solid var(--brd)', borderRadius:6, padding:'2px 8px', zIndex:15 }}>
+
+          {/* Indicador zoom */}
+          <div style={{ position:'absolute', bottom:50, left:14, fontSize:11, color:'var(--mut)', background:'var(--sur)', border:'1px solid var(--brd)', borderRadius:6, padding:'2px 8px', zIndex:15 }}>
             {Math.round(zoom*100)}%
+          </div>
+
+          {/* Detector de coordenadas */}
+          <div style={{
+            position:'absolute', bottom:0, left:0, right:0,
+            background:'var(--sur)', borderTop:'1px solid var(--brd)',
+            padding:'6px 14px', display:'flex', alignItems:'center', gap:16,
+            fontSize:12, zIndex:15, borderRadius:'0 0 14px 14px',
+          }}>
+            <span style={{ color:'var(--mut)' }}>📐 Coordenadas:</span>
+            {mouseCoord
+              ? <>
+                  <span>E: <strong style={{ color:'var(--acc)' }}>{mouseCoord.este}</strong></span>
+                  <span>N: <strong style={{ color:'var(--acc)' }}>{mouseCoord.norte}</strong></span>
+                  <span style={{ color:'var(--mut)', fontSize:10 }}>(PSAD56 18S)</span>
+                </>
+              : <span style={{ color:'var(--mut)', fontStyle:'italic' }}>Mueve el cursor sobre el plano</span>
+            }
           </div>
         </div>
       )}
