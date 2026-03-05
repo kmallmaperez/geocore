@@ -7,7 +7,8 @@ import { useTheme } from '../context/ThemeContext'
 const NAV = [
   { section: 'Principal' },
   { id: '/dashboard',              ico: '📊', lbl: 'Dashboard' },
-  { id: '/resumen',                ico: '📋', lbl: 'Resumen General' },
+  { id: '/resumen',                ico: '📋', lbl: 'Resumen de Sondajes' },
+  { id: '/mapa',                   ico: '🗺',  lbl: 'Mapa de Sondajes' },
   { section: 'Tablas' },
   { id: '/tabla/programa_general', ico: '🗺',  lbl: 'Programa General', roles: ['ADMIN','SUPERVISOR'] },
   { id: '/tabla/perforacion',      ico: '🔩', lbl: 'Perforación' },
@@ -48,7 +49,7 @@ export default function Sidebar() {
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
     if (user.role !== 'USER') return true
-    if (item.id === '/dashboard' || item.id === '/resumen') return true
+    if (['/dashboard','/resumen','/exportar','/mapa'].includes(item.id)) return true
     const tkey = item.id?.replace('/tabla/', '')
     if (TABLE_KEYS.includes(tkey))
       return user.tables.includes('all') || user.tables.includes(tkey)

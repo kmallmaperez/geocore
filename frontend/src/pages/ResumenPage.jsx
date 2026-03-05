@@ -188,7 +188,7 @@ export default function ResumenPage() {
   return (
     <div>
       <Toast msg={toast?.msg} type={toast?.type} />
-      <div className="page-title">Resumen General</div>
+      <div className="page-title">Resumen de Sondajes</div>
       <div className="page-desc">{sorted.length} sondajes · Clic en columna para ordenar</div>
 
       {canEdit && (
@@ -200,7 +200,7 @@ export default function ResumenPage() {
 
       <div className="t-wrap">
         <div className="t-top">
-          <span className="t-title">Resumen General</span>
+          <span className="t-title">Resumen de Sondajes</span>
           <button className="btn btn-grn btn-sm" onClick={dlCSV}>⬇ CSV</button>
         </div>
         <div className="ox">
