@@ -46,6 +46,9 @@ router.get('/config', authMiddleware, async (req, res) => {
 // POST /api/mapa/upload — subir imagen (solo ADMIN), multipart/form-data
 router.post('/upload', authMiddleware, requireRole('ADMIN'), upload.single('plano'), async (req, res) => {
   try {
+    console.log('UPLOAD body:', req.body)
+    console.log('UPLOAD file:', req.file ? req.file.originalname : 'NINGUNO')
+    console.log('UPLOAD headers content-type:', req.headers['content-type'])
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' })
 
     const { width, height } = req.body
