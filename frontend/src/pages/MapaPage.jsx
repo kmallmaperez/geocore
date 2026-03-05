@@ -61,11 +61,30 @@ export default function MapaPage() {
   const [offset,      setOffset]      = useState({ x: 0, y: 0 })
   const [tooltip,     setTooltip]     = useState(null)
   const [mouseCoord,  setMouseCoord]  = useState(null) // {este, norte} bajo el cursor
+  const [visibles,    setVisibles]    = useState({ Completado: true, 'En Proceso': true, Pendiente: true })
 
   const containerRef  = useRef(null)
   const imgRef        = useRef(null)
   const dragging      = useRef(false)
   const dragStart     = useRef({ x:0, y:0, ox:0, oy:0 })
+  const lastTouch     = useRef(null)   // para pan táctil
+  const lastPinchDist = useRef(null)   // para pinch zoom
+
+  // ── Touch listeners no-pasivos (para poder llamar preventDefault) ──
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const opts = { passive: false }
+    el.addEventListener('touchstart', handleTouchStart, opts)
+    el.addEventListener('touchmove',  handleTouchMove,  opts)
+    el.addEventListener('touchend',   handleTouchEnd,   opts)
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart, opts)
+      el.removeEventListener('touchmove',  handleTouchMove,  opts)
+      el.removeEventListener('touchend',   handleTouchEnd,   opts)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offset, zoom, modo])
 
   // ── Cargar config y sondajes ──────────────────────────────────
   useEffect(() => {
@@ -165,6 +184,65 @@ export default function MapaPage() {
     api.put('/mapa/puntos', { puntos: nuevos })
   }
 
+  // ── Touch: pan con 1 dedo, pinch-zoom con 2 dedos ───────────
+  function getTouchDist(t1, t2) {
+    return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY)
+  }
+  function getTouchCenter(t1, t2) {
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 }
+  }
+
+  function handleTouchStart(e) {
+    e.preventDefault()
+    if (e.touches.length === 1) {
+      const t = e.touches[0]
+      lastTouch.current     = { x: t.clientX, y: t.clientY, ox: offset.x, oy: offset.y }
+      lastPinchDist.current = null
+    } else if (e.touches.length === 2) {
+      lastPinchDist.current = getTouchDist(e.touches[0], e.touches[1])
+      lastTouch.current     = null
+    }
+  }
+
+  function handleTouchMove(e) {
+    e.preventDefault()
+    if (e.touches.length === 1 && lastTouch.current && modo !== 'georef') {
+      const t = e.touches[0]
+      setOffset({
+        x: lastTouch.current.ox + t.clientX - lastTouch.current.x,
+        y: lastTouch.current.oy + t.clientY - lastTouch.current.y,
+      })
+    } else if (e.touches.length === 2 && lastPinchDist.current !== null) {
+      const dist   = getTouchDist(e.touches[0], e.touches[1])
+      const factor = dist / lastPinchDist.current
+      lastPinchDist.current = dist
+      const center = getTouchCenter(e.touches[0], e.touches[1])
+      const rect   = containerRef.current.getBoundingClientRect()
+      const mouseX = center.x - rect.left
+      const mouseY = center.y - rect.top
+      setZoom(z => {
+        const newZoom = Math.min(Math.max(z * factor, 0.2), 10)
+        setOffset(o => ({
+          x: mouseX - (mouseX - o.x) * (newZoom / z),
+          y: mouseY - (mouseY - o.y) * (newZoom / z),
+        }))
+        return newZoom
+      })
+    }
+  }
+
+  function handleTouchEnd(e) {
+    if (e.touches.length === 0) {
+      lastTouch.current     = null
+      lastPinchDist.current = null
+    } else if (e.touches.length === 1) {
+      // quedó 1 dedo: reiniciar pan
+      const t = e.touches[0]
+      lastTouch.current     = { x: t.clientX, y: t.clientY, ox: offset.x, oy: offset.y }
+      lastPinchDist.current = null
+    }
+  }
+
   // ── Zoom centrado en el cursor ────────────────────────────────
   function handleWheel(e) {
     e.preventDefault()
@@ -213,6 +291,10 @@ export default function MapaPage() {
   }
   function handleMouseUp()    { dragging.current = false }
   function handleMouseLeave() { dragging.current = false; setMouseCoord(null) }
+
+  function toggleEstado(est) {
+    setVisibles(v => ({ ...v, [est]: !v[est] }))
+  }
 
   // ── Posición display de un sondaje ────────────────────────────
   function sondajePosDisplay(s) {
@@ -319,9 +401,17 @@ export default function MapaPage() {
       {tieneImagen && (
         <div style={{ display:'flex', gap:16, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
           {Object.entries(ESTADO_COLOR).map(([est, col]) => (
-            <div key={est} style={{ display:'flex', alignItems:'center', gap:5, fontSize:12 }}>
-              <div style={{ width:12, height:12, borderRadius:'50%', background:col }} />
-              <span style={{ color:'var(--mut)' }}>{est}</span>
+            <div key={est}
+              onClick={() => toggleEstado(est)}
+              style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
+                background: visibles[est] ? 'var(--sur2)' : 'transparent',
+                border: `1px solid ${visibles[est] ? col : 'var(--brd)'}`,
+                borderRadius:20, padding:'3px 10px 3px 7px',
+                opacity: visibles[est] ? 1 : 0.45,
+                transition:'all .15s', userSelect:'none',
+              }}>
+              <div style={{ width:10, height:10, borderRadius:'50%', background: visibles[est] ? col : 'var(--mut)', transition:'background .15s' }} />
+              <span style={{ color: visibles[est] ? 'var(--txt)' : 'var(--mut)' }}>{est}</span>
             </div>
           ))}
           {calibrado
@@ -336,12 +426,15 @@ export default function MapaPage() {
       {tieneImagen && (
         <div
           ref={containerRef}
-          style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100vh - 240px)', minHeight:480, cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
+          style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100dvh - 236px)', minHeight:'300px', cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
           {/* Capa transformada: imagen + puntos */}
           <div style={{ transform:`translate(${offset.x}px,${offset.y}px) scale(${zoom})`, transformOrigin:'0 0', position:'relative', display:'inline-block' }}>
@@ -353,7 +446,7 @@ export default function MapaPage() {
               draggable={false}
               onClick={handleImgClick}
               onLoad={e => { setImgDispW(e.target.offsetWidth); setImgDispH(e.target.offsetHeight) }}
-              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100vh - 240px)' }}
+              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100dvh - 236px)' }}
             />
 
             {/* Punto pendiente de georeferenciación */}
@@ -386,7 +479,7 @@ export default function MapaPage() {
             })}
 
             {/* Sondajes */}
-            {calibrado && imgDispW > 0 && sondajes.map(s => {
+            {calibrado && imgDispW > 0 && sondajes.filter(s => visibles[s.ESTADO] !== false).map(s => {
               if (!s.ESTE || !s.NORTE) return null
               const pos = sondajePosDisplay(s)
               if (!pos) return null
@@ -409,35 +502,41 @@ export default function MapaPage() {
             })}
 
             {/* Tooltip */}
-            {tooltip && (
-              <div style={{
-                position:'absolute', left:tooltip.x+14, top:Math.max(0, tooltip.y-10),
-                background:'var(--sur)', border:'1px solid var(--brd)',
-                borderRadius:10, padding:'10px 14px', fontSize:12,
-                zIndex:20, pointerEvents:'none', minWidth:190,
-                boxShadow:'0 4px 20px rgba(0,0,0,.4)',
-              }}>
-                <div style={{ fontWeight:700, fontSize:14, marginBottom:6 }}>{tooltip.s.DDHID}</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-                  {tooltip.s.EQUIPO    && <span style={{ color:'var(--mut)' }}>🔧 {tooltip.s.EQUIPO}</span>}
-                  {tooltip.s.PLATAFORMA && <span style={{ color:'var(--mut)' }}>📍 {tooltip.s.PLATAFORMA}</span>}
-                  <span style={{ color: ESTADO_COLOR[tooltip.s.ESTADO], fontWeight:600 }}>● {tooltip.s.ESTADO}</span>
-                  <div style={{ marginTop:4 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                      <span style={{ color:'var(--mut)' }}>Prog: {tooltip.s.PROGRAMADO}m</span>
-                      <span style={{ color:'var(--grn)', fontWeight:600 }}>{Math.min(tooltip.s.PCT??0,100)}%</span>
+            {tooltip && (() => {
+              // Escalar tooltip inversamente al zoom, con mínimo legible
+              const ts   = Math.max(0.7, Math.min(1, 1/zoom))
+              const tOff = 14/zoom
+              return (
+                <div style={{
+                  position:'absolute', left:tooltip.x + tOff, top:Math.max(0, tooltip.y - 10/zoom),
+                  background:'var(--sur)', border:`${1/zoom}px solid var(--brd)`,
+                  borderRadius:10/zoom, padding:`${10*ts}px ${14*ts}px`,
+                  fontSize:12*ts, zIndex:20, pointerEvents:'none', minWidth:180*ts,
+                  boxShadow:`0 ${4*ts}px ${20*ts}px rgba(0,0,0,.4)`,
+                  transform:`scale(${ts})`, transformOrigin:'top left',
+                }}>
+                  <div style={{ fontWeight:700, fontSize:14*ts, marginBottom:6*ts }}>{tooltip.s.DDHID}</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:3*ts }}>
+                    {tooltip.s.EQUIPO    && <span style={{ color:'var(--mut)' }}>🔧 {tooltip.s.EQUIPO}</span>}
+                    {tooltip.s.PLATAFORMA && <span style={{ color:'var(--mut)' }}>📍 {tooltip.s.PLATAFORMA}</span>}
+                    <span style={{ color: ESTADO_COLOR[tooltip.s.ESTADO], fontWeight:600 }}>● {tooltip.s.ESTADO}</span>
+                    <div style={{ marginTop:4*ts }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3*ts }}>
+                        <span style={{ color:'var(--mut)' }}>Prog: {tooltip.s.PROGRAMADO}m</span>
+                        <span style={{ color:'var(--grn)', fontWeight:600 }}>{Math.min(tooltip.s.PCT??0,100)}%</span>
+                      </div>
+                      <div style={{ background:'var(--sur2)', borderRadius:99, height:5*ts, overflow:'hidden' }}>
+                        <div style={{ width:`${Math.min(tooltip.s.PCT??0,100)}%`, height:'100%', background:ESTADO_COLOR[tooltip.s.ESTADO], borderRadius:99 }} />
+                      </div>
+                      <div style={{ marginTop:3*ts }}>Ejec: {tooltip.s.EJECUTADO}m</div>
                     </div>
-                    <div style={{ background:'var(--sur2)', borderRadius:99, height:5, overflow:'hidden' }}>
-                      <div style={{ width:`${Math.min(tooltip.s.PCT??0,100)}%`, height:'100%', background:ESTADO_COLOR[tooltip.s.ESTADO], borderRadius:99 }} />
-                    </div>
-                    <div style={{ marginTop:3 }}>Ejec: {tooltip.s.EJECUTADO}m</div>
+                    {tooltip.s.FECHA_INICIO && tooltip.s.FECHA_INICIO !== '—' && (
+                      <span style={{ color:'var(--mut)', fontSize:11*ts }}>📅 {tooltip.s.FECHA_INICIO} → {tooltip.s.FECHA_FIN}</span>
+                    )}
                   </div>
-                  {tooltip.s.FECHA_INICIO && tooltip.s.FECHA_INICIO !== '—' && (
-                    <span style={{ color:'var(--mut)', fontSize:11 }}>📅 {tooltip.s.FECHA_INICIO} → {tooltip.s.FECHA_FIN}</span>
-                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
 
           {/* Controles zoom */}
