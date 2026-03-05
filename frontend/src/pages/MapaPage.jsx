@@ -132,14 +132,18 @@ export default function MapaPage() {
 
   // ── Georeferenciación: click en imagen ────────────────────────
   function handleImgClick(e) {
-    if (modo !== 'georef' || !imgRef.current) return
-    const rect  = imgRef.current.getBoundingClientRect()
-    const dispX = e.clientX - rect.left
-    const dispY = e.clientY - rect.top
-    // Convertir display → pixel natural (sin zoom, la imagen ya está escalada)
+    if (modo !== 'georef' || !imgRef.current || !containerRef.current) return
+    const containerRect = containerRef.current.getBoundingClientRect()
+    // Posición del click en el espacio del contenedor
+    const cX = e.clientX - containerRect.left
+    const cY = e.clientY - containerRect.top
+    // Revertir transform: translate(offset) scale(zoom) → posición en imagen display
+    const dispX = (cX - offset.x) / zoom
+    const dispY = (cY - offset.y) / zoom
+    // Display → pixel natural
     const natX = Math.round(dispX * (imgNatW / (imgDispW || 1)))
     const natY = Math.round(dispY * (imgNatH / (imgDispH || 1)))
-    setPendPx({ px: natX, py: natY, dispX, dispY })
+    setPendPx({ px: natX, py: natY })
     setFormCoord({ este: '', norte: '' })
   }
 
@@ -190,10 +194,12 @@ export default function MapaPage() {
       setOffset({ x: dragStart.current.ox + e.clientX - dragStart.current.x, y: dragStart.current.oy + e.clientY - dragStart.current.y })
     }
     // Mostrar coordenadas bajo el cursor si hay transformación
-    if (transform && imgRef.current && imgNatW > 0) {
-      const rect  = imgRef.current.getBoundingClientRect()
-      const dispX = e.clientX - rect.left
-      const dispY = e.clientY - rect.top
+    if (transform && containerRef.current && imgNatW > 0) {
+      const containerRect = containerRef.current.getBoundingClientRect()
+      const cX = e.clientX - containerRect.left
+      const cY = e.clientY - containerRect.top
+      const dispX = (cX - offset.x) / zoom
+      const dispY = (cY - offset.y) / zoom
       if (dispX >= 0 && dispY >= 0 && dispX <= imgDispW && dispY <= imgDispH) {
         const natX  = dispX * (imgNatW / (imgDispW || 1))
         const natY  = dispY * (imgNatH / (imgDispH || 1))
@@ -330,7 +336,7 @@ export default function MapaPage() {
       {tieneImagen && (
         <div
           ref={containerRef}
-          style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100vh - 300px)', minHeight:400, cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
+          style={{ position:'relative', overflow:'hidden', background:'var(--sur2)', border:'1px solid var(--brd)', borderRadius:14, height:'calc(100vh - 240px)', minHeight:480, cursor: modo === 'georef' ? 'crosshair' : (dragging.current ? 'grabbing' : 'grab'), userSelect:'none' }}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -347,19 +353,19 @@ export default function MapaPage() {
               draggable={false}
               onClick={handleImgClick}
               onLoad={e => { setImgDispW(e.target.offsetWidth); setImgDispH(e.target.offsetHeight) }}
-              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100vh - 300px)' }}
+              style={{ display:'block', maxWidth:'100%', maxHeight:'calc(100vh - 240px)' }}
             />
 
             {/* Punto pendiente de georeferenciación */}
             {pendPx && modo === 'georef' && imgDispW > 0 && (
               <div style={{
                 position:'absolute',
-                left: pendPx.px * (imgDispW/imgNatW) - 12,
-                top:  pendPx.py * (imgDispH/imgNatH) - 12,
-                width:24, height:24, borderRadius:'50%',
-                background:'rgba(245,158,11,.95)', border:'3px solid #fff',
+                left: pendPx.px * (imgDispW/imgNatW) - 12/zoom,
+                top:  pendPx.py * (imgDispH/imgNatH) - 12/zoom,
+                width:24/zoom, height:24/zoom, borderRadius:'50%',
+                background:'rgba(245,158,11,.95)', border:`${3/zoom}px solid #fff`,
                 pointerEvents:'none', zIndex:10,
-                boxShadow:'0 0 0 4px rgba(245,158,11,.4)',
+                boxShadow:`0 0 0 ${4/zoom}px rgba(245,158,11,.4)`,
               }} />
             )}
 
@@ -369,12 +375,12 @@ export default function MapaPage() {
               if (!pos) return null
               return (
                 <div key={i} style={{
-                  position:'absolute', left: pos.x - 10, top: pos.y - 10,
-                  width:20, height:20, borderRadius:'50%',
-                  background:'#3b82f6', border:'2.5px solid #fff',
+                  position:'absolute', left: pos.x - 10/zoom, top: pos.y - 10/zoom,
+                  width:20/zoom, height:20/zoom, borderRadius:'50%',
+                  background:'#3b82f6', border:`${2/zoom}px solid #fff`,
                   display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:9, color:'#fff', fontWeight:700, pointerEvents:'none', zIndex:9,
-                  boxShadow:'0 2px 6px rgba(0,0,0,.4)',
+                  fontSize:9/zoom, color:'#fff', fontWeight:700, pointerEvents:'none', zIndex:9,
+                  boxShadow:`0 ${2/zoom}px ${6/zoom}px rgba(0,0,0,.4)`,
                 }}>{i+1}</div>
               )
             })}
@@ -385,14 +391,16 @@ export default function MapaPage() {
               const pos = sondajePosDisplay(s)
               if (!pos) return null
               const color = ESTADO_COLOR[s.ESTADO] || ESTADO_COLOR['Pendiente']
-              const r = s.ESTADO === 'En Proceso' ? 9 : 7
+              // Radio base en píxeles de pantalla, escalado inversamente al zoom
+              const baseR  = s.ESTADO === 'En Proceso' ? 9 : 7
+              const r      = baseR / zoom
               return (
                 <div key={s.DDHID} style={{
                   position:'absolute', left:pos.x - r, top:pos.y - r,
                   width:r*2, height:r*2, borderRadius:'50%',
-                  background:color, border:'2px solid rgba(255,255,255,.8)',
+                  background:color, border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
                   cursor:'pointer', zIndex:5, transition:'transform .15s',
-                  boxShadow: s.ESTADO === 'En Proceso' ? `0 0 10px ${color}` : '0 1px 4px rgba(0,0,0,.3)',
+                  boxShadow: s.ESTADO === 'En Proceso' ? `0 0 ${8/zoom}px ${color}` : `0 1px ${3/zoom}px rgba(0,0,0,.3)`,
                 }}
                   onMouseEnter={e => { e.currentTarget.style.transform='scale(1.8)'; setTooltip({ s, x:pos.x, y:pos.y }) }}
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)';   setTooltip(null) }}
