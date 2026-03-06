@@ -54,7 +54,6 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
   try {
     const prog = await db.query('SELECT * FROM programa_general ORDER BY id')
     const perf = await db.query('SELECT * FROM perforacion ORDER BY id')
-    if (prog.rows[0]) { const r=prog.rows[0]; console.log('FILA EJEMPLO:', JSON.stringify({DDHID:r.DDHID,ddhid:r.ddhid,ESTE:r.ESTE,este:r.este,NORTE:r.NORTE,norte:r.norte})) }
     const ov   = await db.query('SELECT * FROM estado_overrides')
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })

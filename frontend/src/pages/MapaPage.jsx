@@ -96,8 +96,15 @@ export default function MapaPage() {
         if (pts.length >= 3) setTransform(calcTransform(pts))
         // Dedup por DDHID
         const seen = new Map()
-        ;(sRes.data || []).forEach(s => { if (s.DDHID) seen.set(s.DDHID, s) }) // excluir DDHID null/vacío
-        setSondajes([...seen.values()])
+        ;(sRes.data || []).forEach(s => { if (s.DDHID) seen.set(s.DDHID, s) })
+        const arr = [...seen.values()]
+        const conCoords   = arr.filter(s => s.ESTE && s.NORTE)
+        const sinCoords   = arr.filter(s => !s.ESTE || !s.NORTE)
+        const pendCoords  = conCoords.filter(s => s.ESTADO === 'Pendiente')
+        console.log(`Total: ${arr.length} | Con coords: ${conCoords.length} | Sin coords: ${sinCoords.length}`)
+        console.log(`Pendientes con coords: ${pendCoords.length}`, pendCoords.map(s=>({DDHID:s.DDHID,ESTE:s.ESTE,NORTE:s.NORTE})))
+        if (sinCoords.length > 0) console.log('Sin coords ejemplo:', sinCoords.slice(0,3).map(s=>({DDHID:s.DDHID,ESTE:s.ESTE,NORTE:s.NORTE,raw_este:s.este,raw_norte:s.norte})))
+        setSondajes(arr)
       }).catch(console.error).finally(() => setLoading(false))
   }, [])
 
