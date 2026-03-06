@@ -188,7 +188,7 @@ export default function MapaPage() {
       el.removeEventListener('touchmove',  onTouchMove,  opts)
       el.removeEventListener('touchend',   onTouchEnd,   opts)
     }
-  }, []) // solo al montar
+  }, [imgDataUrl]) // re-corre cuando aparece/desaparece el mapa
 
   // ── Subir imagen ──────────────────────────────────────────────
   async function handleFileChange(e) {
@@ -397,20 +397,25 @@ export default function MapaPage() {
       {/* Leyenda — botones toggle */}
       {tieneImagen && (
         <div style={{ display:'flex', gap:10, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
-          {Object.entries(ESTADO_COLOR).map(([est, col]) => (
-            <button key={est} onClick={() => setVisibles(v => ({...v,[est]:!v[est]}))}
-              style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
-                background: visibles[est] ? col+'22' : 'transparent',
-                border: `1.5px solid ${visibles[est] ? col : 'var(--brd)'}`,
-                borderRadius:20, padding:'4px 12px 4px 8px', color: visibles[est] ? 'var(--txt)' : 'var(--mut)',
-                opacity: visibles[est] ? 1 : 0.5, transition:'all .15s',
-              }}>
-              <div style={{ width:10, height:10, borderRadius:'50%', background: visibles[est] ? col : 'var(--mut)' }} />
-              {est}
-            </button>
-          ))}
+          {Object.entries(ESTADO_COLOR).map(([est, col]) => {
+            const count = est === 'Pendiente'
+              ? sondajes.filter(s => normalizeEstado(s.ESTADO) === 'Pendiente').length
+              : sondajes.filter(s => normalizeEstado(s.ESTADO) === est && s.ESTE && s.NORTE).length
+            return (
+              <button key={est} onClick={() => setVisibles(v => ({...v,[est]:!v[est]}))}
+                style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
+                  background: visibles[est] ? col+'22' : 'transparent',
+                  border: `1.5px solid ${visibles[est] ? col : 'var(--brd)'}`,
+                  borderRadius:20, padding:'4px 12px 4px 8px', color: visibles[est] ? 'var(--txt)' : 'var(--mut)',
+                  opacity: visibles[est] ? 1 : 0.5, transition:'all .15s',
+                }}>
+                <div style={{ width:10, height:10, borderRadius:'50%', background: visibles[est] ? col : 'var(--mut)' }} />
+                {est} <span style={{ fontSize:10, opacity:.7 }}>({count})</span>
+              </button>
+            )
+          })}
           {calibrado
-            ? <span style={{ fontSize:11, color:'var(--grn)' }}>✅ {sondajes.filter(s=>s.ESTE&&s.NORTE).length} sondajes con coordenadas</span>
+            ? <span style={{ fontSize:11, color:'var(--grn)' }}>✅ {sondajes.filter(s=>s.ESTE&&s.NORTE).length} con coordenadas · {sondajes.filter(s=>!s.ESTE||!s.NORTE).length} sin coordenadas</span>
             : isAdmin && <span style={{ fontSize:11, color:'var(--mut)', fontStyle:'italic' }}>⚠ Faltan {Math.max(0,3-puntosCtrl.length)} puntos de georeferencia</span>
           }
           <span style={{ fontSize:11, color:'var(--mut)', marginLeft:'auto' }}>🖱 Scroll · Arrastra · 📱 Pellizca · Mantén para info</span>
