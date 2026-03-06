@@ -79,8 +79,11 @@ export default function MapaPage() {
 
   // ── Cargar datos ──────────────────────────────────────────────
   useEffect(() => {
-    Promise.all([api.get('/mapa/config'), api.get('/tables/resumen/general')])
-      .then(([cfgRes, sRes]) => {
+    Promise.all([
+      api.get('/mapa/config'),
+      api.get('/tables/programa_general'),   // 141 filas con ESTE/NORTE
+      api.get('/tables/resumen/general'),    // info de avance, estado, fechas
+    ]).then(([cfgRes, pgRes, resRes]) => {
         const cfg = cfgRes.data || {}
         if (cfg.imagen_b64 && cfg.imagen_tipo) {
           setImgDataUrl(`data:${cfg.imagen_tipo};base64,${cfg.imagen_b64}`)
@@ -90,8 +93,34 @@ export default function MapaPage() {
         const pts = Array.isArray(cfg.puntos_ctrl) ? cfg.puntos_ctrl : []
         setPuntosCtrl(pts)
         if (pts.length >= 3) setTransform(calcTransform(pts))
-        // Sin dedup — backend ya devuelve datos limpios, solo excluir DDHID vacío
-        setSondajes((sRes.data || []).filter(s => s.DDHID && String(s.DDHID).trim() !== ''))
+
+        // Índice de resumen por DDHID para lookup rápido
+        const resumenIdx = {}
+        ;(resRes.data || []).forEach(r => { if (r.DDHID) resumenIdx[r.DDHID] = r })
+
+        // Construir lista final: base = programa_general (todos los 141)
+        // enriquecida con datos de resumen donde existan
+        const lista = (pgRes.data || [])
+          .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
+          .map(p => {
+            const r   = resumenIdx[p.DDHID] || {}
+            const est = normEst(r.ESTADO)   // solo Completado/En Proceso/Pendiente
+            return {
+              DDHID:        p.DDHID,
+              PLATAFORMA:   p.PLATAFORMA || r.PLATAFORMA || '',
+              EQUIPO:       p.EQUIPO     || r.EQUIPO     || '',
+              ESTE:         parseFloat(p.ESTE)   || parseFloat(p.este)   || null,
+              NORTE:        parseFloat(p.NORTE)  || parseFloat(p.norte)  || null,
+              PROGRAMADO:   r.PROGRAMADO  || parseFloat(p.LENGTH) || 0,
+              EJECUTADO:    r.EJECUTADO   || 0,
+              PCT:          r.PCT         || 0,
+              ESTADO:       est,
+              FECHA_INICIO: r.FECHA_INICIO || '—',
+              FECHA_FIN:    r.FECHA_FIN    || '—',
+            }
+          })
+        console.log(`programa_general: ${lista.length} | conCoords: ${lista.filter(s=>s.ESTE&&s.NORTE).length}`)
+        setSondajes(lista)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
