@@ -114,7 +114,6 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
         NORTE: parseFloat(p.NORTE ?? p.norte) || null,
       }
     })
-    console.log(`resumen/general: prog.rows=${prog.rows.length} resumen=${resumen.length} conCoords=${resumen.filter(r=>r.ESTE&&r.NORTE).length}`)
     res.json(resumen)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
