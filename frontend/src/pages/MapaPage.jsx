@@ -25,13 +25,16 @@ function coordToPx(este, norte, T) {
   return { px: T.a*este + T.b*norte + T.c, py: T.d*este + T.e*norte + T.f }
 }
 
+// Usar código numérico para evitar cualquier problema de string matching
+// 0=Pendiente, 1=En Proceso, 2=Completado
+const ESTADO_KEY  = ['Pendiente', 'En Proceso', 'Completado']
 const ESTADO_COLOR = { 'Completado':'#10b981', 'En Proceso':'#f59e0b', 'Pendiente':'#64748b' }
 
 function normEst(est) {
   const s = (est||'').trim()
-  if (s === 'Completado') return 'Completado'
-  if (s === 'En Proceso') return 'En Proceso'
-  return 'Pendiente'
+  if (s === 'Completado') return 2
+  if (s === 'En Proceso') return 1
+  return 0
 }
 
 export default function MapaPage() {
@@ -56,7 +59,7 @@ export default function MapaPage() {
   const [offset,     setOffset]     = useState({ x:0, y:0 })
   const [tooltip,    setTooltip]    = useState(null)
   const [mouseCoord, setMouseCoord] = useState(null)
-  const [visibles,   setVisibles]   = useState({ Completado:true, 'En Proceso':true, Pendiente:true })
+  const [visibles,   setVisibles]   = useState({ 0:true, 1:true, 2:true })  // 0=Pendiente,1=EnProceso,2=Completado
 
   // Refs — siempre tienen el valor más reciente, accesibles en listeners DOM
   const containerRef  = useRef(null)
@@ -107,7 +110,7 @@ export default function MapaPage() {
         const plat = String(p.PLATAFORMA || '').trim()
         const r    = resIdx[plat] || {}
         // Estado: solo Completado o En Proceso, todo lo demás → Pendiente
-        const est  = normEst(r.ESTADO)
+        const estKey = normEst(r.ESTADO)  // número: 0,1,2
         return {
           DDHID:        p.DDHID        || r.DDHID || '',
           PLATAFORMA:   plat,
@@ -117,7 +120,8 @@ export default function MapaPage() {
           PROGRAMADO:   r.PROGRAMADO   || parseFloat(p.LENGTH) || 0,
           EJECUTADO:    r.EJECUTADO    || 0,
           PCT:          r.PCT          || 0,
-          ESTADO:       est,
+          ESTADO:       estKey,         // número 0/1/2 — sin riesgo de string mismatch
+          ESTADO_STR:   ESTADO_KEY[estKey],
           FECHA_INICIO: r.FECHA_INICIO || '—',
           FECHA_FIN:    r.FECHA_FIN    || '—',
         }
@@ -184,7 +188,7 @@ export default function MapaPage() {
       longPress.current = setTimeout(() => {
         // Buscar el sondaje en el state actual usando el ref
         const s = sondajesRef.current.find(s => s.DDHID === ddhid)
-        if (s) setTooltip({ s, est: normEst(s.ESTADO), cx, cy })
+        if (s) setTooltip({ s, est: ESTADO_KEY[s.ESTADO], cx, cy })
       }, 500)
       return
     }
@@ -394,7 +398,7 @@ export default function MapaPage() {
             )}
             {sondajes.length > 0 && (
               <button className="btn btn-out" onClick={() => {
-                const cols = ['DDHID','PLATAFORMA','EQUIPO','ESTE','NORTE','ESTADO','PROGRAMADO','EJECUTADO','PCT','FECHA_INICIO','FECHA_FIN']
+                const cols = ['DDHID','PLATAFORMA','EQUIPO','ESTE','NORTE','ESTADO_STR','PROGRAMADO','EJECUTADO','PCT','FECHA_INICIO','FECHA_FIN']
                 const rows = [cols.join(','), ...sondajes.map(s => cols.map(k => JSON.stringify(s[k] ?? '')).join(','))]
                 const blob = new Blob([rows.join('\n')], { type:'text/csv' })
                 const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -459,26 +463,29 @@ export default function MapaPage() {
       {/* Leyenda */}
       {tieneImagen && (
         <div style={{ display:'flex', gap:10, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
-          {Object.entries(ESTADO_COLOR).map(([est, col]) => {
-            const total    = sondajes.filter(s => normEst(s.ESTADO) === est).length
-            const conCoord = sondajes.filter(s => normEst(s.ESTADO) === est && s.ESTE && s.NORTE).length
-            const count    = est === 'Pendiente' ? `${conCoord}📍/${total}` : conCoord
+          {ESTADO_KEY.map((estStr, estNum) => {
+            const col      = ESTADO_COLOR[estStr]
+            const total    = sondajes.filter(s => s.ESTADO === estNum).length
+            const conCoord = sondajes.filter(s => s.ESTADO === estNum && s.ESTE && s.NORTE).length
+            const count    = estNum === 0 ? `${conCoord}📍/${total}` : conCoord
+            const on       = visibles[estNum]
             return (
-              <button key={est} onClick={() => setVisibles(v => ({...v,[est]:!v[est]}))}
-                style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
-                  background: visibles[est] ? col+'22' : 'transparent',
-                  border:`1.5px solid ${visibles[est] ? col : 'var(--brd)'}`,
+              <button key={estNum} onClick={() => setVisibles(v => ({...v,[estNum]:!v[estNum]}))}>
+                <span style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
+                  background: on ? col+'22' : 'transparent',
+                  border:`1.5px solid ${on ? col : 'var(--brd)'}`,
                   borderRadius:20, padding:'4px 12px 4px 8px',
-                  color: visibles[est] ? 'var(--txt)' : 'var(--mut)',
-                  opacity: visibles[est] ? 1 : 0.5, transition:'all .15s',
+                  color: on ? 'var(--txt)' : 'var(--mut)',
+                  opacity: on ? 1 : 0.5, transition:'all .15s', display:'flex', alignItems:'center', gap:6,
                 }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background: visibles[est] ? col : 'var(--mut)' }} />
-                {est} <span style={{ fontSize:10, opacity:.7 }}>({count})</span>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background: on ? col : 'var(--mut)' }} />
+                  {estStr} <span style={{ fontSize:10, opacity:.7 }}>({count})</span>
+                </span>
               </button>
             )
           })}
           {calibrado
-            ? <span style={{ fontSize:11, color:'var(--grn)' }}>✅ {sondajes.filter(s=>s.ESTE&&s.NORTE).length} con coords · {sondajes.filter(s=>!s.ESTE||!s.NORTE).length} sin coords</span>
+            ? <span style={{ fontSize:11, color:'var(--grn)' }}>✅ {sondajes.filter(s=>s.ESTE&&s.NORTE).length} con coords · {sondajes.filter(s=>!s.ESTE||!s.NORTE).length} sin</span>
             : isAdmin && <span style={{ fontSize:11, color:'var(--mut)', fontStyle:'italic' }}>⚠ Faltan {Math.max(0,3-puntosCtrl.length)} puntos</span>
           }
           <span style={{ fontSize:11, color:'var(--mut)', marginLeft:'auto' }}>🖱 Scroll · Arrastra · 📱 Pellizca · Mantén para info</span>
@@ -532,24 +539,25 @@ export default function MapaPage() {
 
             {/* Sondajes */}
             {calibrado && imgDispW>0 && sondajes.map(s => {
-              const est = normEst(s.ESTADO)
-              if (!visibles[est]) return null
+              const estNum = s.ESTADO          // ya es 0/1/2
+              const estStr = ESTADO_KEY[estNum]
+              if (!visibles[estNum]) return null  // comparación numérica — sin strings
               if (!s.ESTE || !s.NORTE) return null
               const pos = sondajePosDisplay(s)
               if (!pos) return null
-              const color = ESTADO_COLOR[est]
-              const r     = (est==='En Proceso' ? 9 : 7) / zoom
+              const color = ESTADO_COLOR[estStr]
+              const r     = (estNum === 1 ? 9 : 7) / zoom
               return (
                 <div key={s.DDHID} data-dot="1" data-ddhid={s.DDHID} style={{
                   position:'absolute', left:pos.x-r, top:pos.y-r,
                   width:r*2, height:r*2, borderRadius:'50%',
                   background:color, border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
                   cursor:'pointer', zIndex:5, transition:'transform .1s',
-                  boxShadow: est==='En Proceso' ? `0 0 ${8/zoom}px ${color}` : `0 1px ${3/zoom}px rgba(0,0,0,.3)`,
+                  boxShadow: estNum===1 ? `0 0 ${8/zoom}px ${color}` : `0 1px ${3/zoom}px rgba(0,0,0,.3)`,
                 }}
                   onMouseEnter={() => {
                     const { zoom:z, offset:o } = stateRef.current
-                    setTooltip({ s, est, cx: pos.x*z + o.x, cy: pos.y*z + o.y })
+                    setTooltip({ s, est: estStr, cx: pos.x*z + o.x, cy: pos.y*z + o.y })
                   }}
                   onMouseLeave={() => setTooltip(null)}
                   // touch manejado en handler nativo (handlersRef.current.touchstart)
@@ -561,7 +569,7 @@ export default function MapaPage() {
           {/* Tooltip */}
           {tooltip && (() => {
             const s   = tooltip.s
-            const est = tooltip.est || normEst(s.ESTADO)
+            const est = tooltip.est || ESTADO_KEY[s.ESTADO]
             const pct = Math.min(s.PCT ?? 0, 100)
             const cW  = containerRef.current?.offsetWidth  || 600
             const cH  = containerRef.current?.offsetHeight || 400
