@@ -81,49 +81,50 @@ export default function MapaPage() {
   useEffect(() => {
     Promise.all([
       api.get('/mapa/config'),
-      api.get('/tables/programa_general'),   // 141 filas con ESTE/NORTE
-      api.get('/tables/resumen/general'),    // info de avance, estado, fechas
+      api.get('/tables/programa_general'),  // todos los sondajes con ESTE/NORTE
+      api.get('/tables/resumen/general'),   // avance, estado, fechas
     ]).then(([cfgRes, pgRes, resRes]) => {
-        const cfg = cfgRes.data || {}
-        if (cfg.imagen_b64 && cfg.imagen_tipo) {
-          setImgDataUrl(`data:${cfg.imagen_tipo};base64,${cfg.imagen_b64}`)
-          setImgNatW(cfg.imagen_w || 0)
-          setImgNatH(cfg.imagen_h || 0)
-        }
-        const pts = Array.isArray(cfg.puntos_ctrl) ? cfg.puntos_ctrl : []
-        setPuntosCtrl(pts)
-        if (pts.length >= 3) setTransform(calcTransform(pts))
+      const cfg = cfgRes.data || {}
+      if (cfg.imagen_b64 && cfg.imagen_tipo) {
+        setImgDataUrl(`data:${cfg.imagen_tipo};base64,${cfg.imagen_b64}`)
+        setImgNatW(cfg.imagen_w || 0)
+        setImgNatH(cfg.imagen_h || 0)
+      }
+      const pts = Array.isArray(cfg.puntos_ctrl) ? cfg.puntos_ctrl : []
+      setPuntosCtrl(pts)
+      if (pts.length >= 3) setTransform(calcTransform(pts))
 
-        // Índice de resumen por DDHID para lookup rápido
-        const resumenIdx = {}
-        ;(resRes.data || []).forEach(r => { if (r.DDHID) resumenIdx[r.DDHID] = r })
-
-        // Construir lista final: base = programa_general (todos los 141)
-        // enriquecida con datos de resumen donde existan
-        const lista = (pgRes.data || [])
-          .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
-          .map(p => {
-            const r   = resumenIdx[p.DDHID] || {}
-            const est = normEst(r.ESTADO)   // solo Completado/En Proceso/Pendiente
-            return {
-              DDHID:        p.DDHID,
-              PLATAFORMA:   p.PLATAFORMA || r.PLATAFORMA || '',
-              EQUIPO:       p.EQUIPO     || r.EQUIPO     || '',
-              ESTE:         parseFloat(p.ESTE)   || parseFloat(p.este)   || null,
-              NORTE:        parseFloat(p.NORTE)  || parseFloat(p.norte)  || null,
-              PROGRAMADO:   r.PROGRAMADO  || parseFloat(p.LENGTH) || 0,
-              EJECUTADO:    r.EJECUTADO   || 0,
-              PCT:          r.PCT         || 0,
-              ESTADO:       est,
-              FECHA_INICIO: r.FECHA_INICIO || '—',
-              FECHA_FIN:    r.FECHA_FIN    || '—',
-            }
-          })
-        console.log(`programa_general: ${lista.length} | conCoords: ${lista.filter(s=>s.ESTE&&s.NORTE).length}`)
-        setSondajes(lista)
+      // Índice de resumen por PLATAFORMA (columna en común)
+      const resIdx = {}
+      ;(resRes.data || []).forEach(r => {
+        if (r.PLATAFORMA) resIdx[String(r.PLATAFORMA).trim()] = r
       })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+
+      // Base: programa_general completo (141 sondajes)
+      const lista = (pgRes.data || []).map(p => {
+        const plat = String(p.PLATAFORMA || '').trim()
+        const r    = resIdx[plat] || {}
+        // Estado: solo Completado o En Proceso, todo lo demás → Pendiente
+        const est  = normEst(r.ESTADO)
+        return {
+          DDHID:        p.DDHID        || r.DDHID || '',
+          PLATAFORMA:   plat,
+          EQUIPO:       r.EQUIPO       || p.EQUIPO || '',
+          ESTE:         parseFloat(p.ESTE  ?? p.este)  || null,
+          NORTE:        parseFloat(p.NORTE ?? p.norte) || null,
+          PROGRAMADO:   r.PROGRAMADO   || parseFloat(p.LENGTH) || 0,
+          EJECUTADO:    r.EJECUTADO    || 0,
+          PCT:          r.PCT          || 0,
+          ESTADO:       est,
+          FECHA_INICIO: r.FECHA_INICIO || '—',
+          FECHA_FIN:    r.FECHA_FIN    || '—',
+        }
+      })
+
+      setSondajes(lista)
+    })
+    .catch(console.error)
+    .finally(() => setLoading(false))
   }, [])
 
   // ── Helpers de zoom/pan ───────────────────────────────────────
