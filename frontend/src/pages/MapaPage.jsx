@@ -57,7 +57,10 @@ export default function MapaPage() {
   const [offset,     setOffset]     = useState({ x:0, y:0 })
   const [tooltip,    setTooltip]    = useState(null)
   const [mouseCoord, setMouseCoord] = useState(null)
-  const [visibles,   setVisibles]   = useState({ Pendiente:true, 'En Proceso':true, Completado:true })
+  // Set de estados OCULTOS — si está en el set, no se muestra
+  const ocultos      = useRef(new Set())
+  const [renderKey,  setRenderKey]  = useState(0)
+  const forceRender  = () => setRenderKey(k => k + 1)
 
   // Refs — siempre tienen el valor más reciente, accesibles en listeners DOM
   const containerRef  = useRef(null)
@@ -471,10 +474,14 @@ export default function MapaPage() {
             const total    = sondajes.filter(s => s.ESTADO === est).length
             const conCoord = sondajes.filter(s => s.ESTADO === est && s.ESTE && s.NORTE).length
             const count    = est === 'Pendiente' ? `${conCoord}📍/${total}` : conCoord
-            const on       = visibles[est] === true
+            const on       = !ocultos.current.has(est)
             return (
               <button key={est}
-                onClick={() => setVisibles(v => ({ ...v, [est]: !v[est] }))}
+                onClick={() => {
+                  if (ocultos.current.has(est)) ocultos.current.delete(est)
+                  else ocultos.current.add(est)
+                  forceRender()
+                }}
                 style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
                   background: on ? col+'22' : 'transparent',
                   border:`1.5px solid ${on ? col : 'var(--brd)'}`,
@@ -543,7 +550,7 @@ export default function MapaPage() {
             {/* Sondajes */}
             {calibrado && imgDispW>0 && sondajes.map(s => {
               const est = s.ESTADO   // string: 'Completado'|'En Proceso'|'Pendiente'
-              if (visibles[est] !== true) return null
+              if (ocultos.current.has(est)) return null
               if (!s.ESTE || !s.NORTE) return null
               const pos = sondajePosDisplay(s)
               if (!pos) return null
