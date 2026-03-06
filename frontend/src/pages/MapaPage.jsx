@@ -123,11 +123,13 @@ export default function MapaPage() {
   }
 
   touchStartHandlerRef.current = function(e) {
-    // No prevenir si el toque es sobre un botón o punto (dejar que actúen)
-    const tag = e.target.tagName
-    const isDot = e.target.closest('[data-dot]')
-    const isBtn = tag === 'BUTTON' || e.target.closest('button')
+    const isBtn = e.target.tagName === 'BUTTON' || !!e.target.closest('button')
+    const isDot = !!e.target.closest('[data-dot]')
     if (!isBtn) e.preventDefault()
+    // Si toca un dot: dejar que el handler React del dot maneje el long press, no interferir
+    if (isDot) return
+    // Si toca fuera de dot: cerrar tooltip y manejar pan/pinch
+    setTooltip(null)
     lastTouches.current = Array.from(e.touches)
     if (e.touches.length === 1) {
       lastPinchDist.current = null
@@ -136,13 +138,16 @@ export default function MapaPage() {
       const t1 = e.touches[0], t2 = e.touches[1]
       lastPinchDist.current = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
     }
-    // Cerrar tooltip si toca fuera de un punto
-    if (!isDot) setTooltip(null)
   }
 
   touchMoveHandlerRef.current = function(e) {
     e.preventDefault()
     clearTimeout(longPressTimer.current)
+    const isDot = !!e.target.closest('[data-dot]')
+    // Si el movimiento empezó en un dot con 1 dedo y no tenemos lastTouches, inicializar pan
+    if (isDot && e.touches.length === 1 && !lastTouches.current[0]) {
+      lastTouches.current = Array.from(e.touches); return
+    }
     if (e.touches.length === 1 && modoRef.current !== 'georef') {
       const prev = lastTouches.current[0]
       if (!prev) return
@@ -404,9 +409,9 @@ export default function MapaPage() {
       {tieneImagen && (
         <div style={{ display:'flex', gap:10, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
           {Object.entries(ESTADO_COLOR).map(([est, col]) => {
-            const count = est === 'Pendiente'
-              ? sondajes.filter(s => normalizeEstado(s.ESTADO) === 'Pendiente').length
-              : sondajes.filter(s => normalizeEstado(s.ESTADO) === est && s.ESTE && s.NORTE).length
+            const total    = sondajes.filter(s => normalizeEstado(s.ESTADO) === est).length
+            const conCoord = sondajes.filter(s => normalizeEstado(s.ESTADO) === est && s.ESTE && s.NORTE).length
+            const count    = est === 'Pendiente' ? `${conCoord}📍/${total}` : conCoord
             return (
               <button key={est} onClick={() => setVisibles(v => ({...v,[est]:!v[est]}))}
                 style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer',
@@ -502,15 +507,18 @@ export default function MapaPage() {
                   }}
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; setTooltip(null) }}
                   onTouchStart={e => {
-                    e.stopPropagation() // no pasar al contenedor para no cancelar long press
+                    // stopPropagation en React NO detiene listeners nativos DOM
+                    // El handler nativo detecta [data-dot] y nos deja actuar solos
                     const touch = e.touches[0]
                     const rect  = containerRef.current?.getBoundingClientRect()
                     const cx    = rect ? touch.clientX - rect.left : 0
                     const cy    = rect ? touch.clientY - rect.top  : 0
+                    // Inicializar lastTouches para que pan funcione si el usuario mueve después
+                    lastTouches.current = Array.from(e.touches)
                     longPressTimer.current = setTimeout(() => setTooltip({ s, est, cx, cy }), 500)
                   }}
-                  onTouchMove={e => { e.stopPropagation(); clearTimeout(longPressTimer.current) }}
-                  onTouchEnd={e => { e.stopPropagation(); clearTimeout(longPressTimer.current) }}
+                  onTouchMove={e => { clearTimeout(longPressTimer.current) }}
+                  onTouchEnd={e => { clearTimeout(longPressTimer.current) }}
                 />
               )
             })}
