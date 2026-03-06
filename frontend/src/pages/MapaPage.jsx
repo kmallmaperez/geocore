@@ -96,87 +96,88 @@ export default function MapaPage() {
         if (pts.length >= 3) setTransform(calcTransform(pts))
         // Dedup por DDHID
         const seen = new Map()
-        ;(sRes.data || []).forEach(s => seen.set(s.DDHID, s))
-        const arr = [...seen.values()]
-        // Debug: mostrar sondajes con ESTE/NORTE que no sean Completado ni En Proceso
-        const raros = arr.filter(s => s.ESTE && s.NORTE && !['Completado','En Proceso'].includes((s.ESTADO||'').trim()))
-        console.log('Sondajes con coords que aparecen como Pendiente:', raros.map(s => ({ DDHID:s.DDHID, ESTADO:s.ESTADO, PCT:s.PCT, ESTE:s.ESTE, NORTE:s.NORTE })))
-        setSondajes(arr)
+        ;(sRes.data || []).forEach(s => { if (s.DDHID) seen.set(s.DDHID, s) }) // excluir DDHID null/vacío
+        setSondajes([...seen.values()])
       }).catch(console.error).finally(() => setLoading(false))
   }, [])
 
-  // ── Event listeners DOM no-pasivos ───────────────────────────
+  // ── Event listeners DOM no-pasivos (wheel + touch) ─────────
+  // Los handlers se guardan en refs para que el useEffect([]]) no capture closures stale
+  const wheelHandlerRef      = useRef(null)
+  const touchStartHandlerRef = useRef(null)
+  const touchMoveHandlerRef  = useRef(null)
+  const touchEndHandlerRef   = useRef(null)
+
+  // Actualizar los handlers en cada render (siempre tienen valores frescos)
+  wheelHandlerRef.current = function(e) {
+    e.preventDefault()
+    const rect   = containerRef.current.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+    const factor = e.deltaY > 0 ? 0.85 : 1.18
+    const z = zoomRef.current, o = offsetRef.current
+    const nz = Math.min(Math.max(z * factor, 0.2), 10)
+    zoomRef.current   = nz
+    offsetRef.current = { x: mouseX-(mouseX-o.x)*(nz/z), y: mouseY-(mouseY-o.y)*(nz/z) }
+    setZoom(nz); setOffset({...offsetRef.current})
+  }
+
+  touchStartHandlerRef.current = function(e) {
+    e.preventDefault()
+    lastTouches.current = Array.from(e.touches)
+    if (e.touches.length === 1) {
+      lastPinchDist.current = null
+    } else if (e.touches.length === 2) {
+      clearTimeout(longPressTimer.current)
+      const t1 = e.touches[0], t2 = e.touches[1]
+      lastPinchDist.current = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
+    }
+  }
+
+  touchMoveHandlerRef.current = function(e) {
+    e.preventDefault()
+    clearTimeout(longPressTimer.current)
+    if (e.touches.length === 1 && modoRef.current !== 'georef') {
+      const prev = lastTouches.current[0]
+      if (!prev) return
+      const t = e.touches[0]
+      const o = offsetRef.current
+      offsetRef.current = { x: o.x + t.clientX - prev.clientX, y: o.y + t.clientY - prev.clientY }
+      setOffset({...offsetRef.current})
+      lastTouches.current = Array.from(e.touches)
+    } else if (e.touches.length === 2) {
+      const t1 = e.touches[0], t2 = e.touches[1]
+      const dist = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
+      if (lastPinchDist.current) {
+        const factor = dist / lastPinchDist.current
+        const rect   = containerRef.current.getBoundingClientRect()
+        const cx     = ((t1.clientX+t2.clientX)/2) - rect.left
+        const cy     = ((t1.clientY+t2.clientY)/2) - rect.top
+        const z = zoomRef.current, o = offsetRef.current
+        const nz = Math.min(Math.max(z * factor, 0.2), 10)
+        zoomRef.current   = nz
+        offsetRef.current = { x: cx-(cx-o.x)*(nz/z), y: cy-(cy-o.y)*(nz/z) }
+        setZoom(nz); setOffset({...offsetRef.current})
+      }
+      lastPinchDist.current = dist
+      lastTouches.current   = Array.from(e.touches)
+    }
+  }
+
+  touchEndHandlerRef.current = function(e) {
+    lastTouches.current = Array.from(e.touches)
+    if (e.touches.length < 2) lastPinchDist.current = null
+  }
+
+  // Registrar listeners una sola vez, llamando al ref (siempre fresco)
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-
-    function onWheel(e) {
-      e.preventDefault()
-      const rect   = el.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const mouseY = e.clientY - rect.top
-      const factor = e.deltaY > 0 ? 0.85 : 1.18
-      const z      = zoomRef.current
-      const o      = offsetRef.current
-      const nz     = Math.min(Math.max(z * factor, 0.2), 10)
-      zoomRef.current  = nz
-      offsetRef.current = { x: mouseX - (mouseX - o.x)*(nz/z), y: mouseY - (mouseY - o.y)*(nz/z) }
-      setZoom(nz)
-      setOffset({ ...offsetRef.current })
-    }
-
-    function onTouchStart(e) {
-      e.preventDefault()
-      clearTimeout(longPressTimer.current)
-      lastTouches.current = Array.from(e.touches)
-      if (e.touches.length === 1) {
-        lastPinchDist.current = null
-      } else if (e.touches.length === 2) {
-        const t1 = e.touches[0], t2 = e.touches[1]
-        lastPinchDist.current = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
-      }
-    }
-
-    function onTouchMove(e) {
-      e.preventDefault()
-      clearTimeout(longPressTimer.current)
-      if (e.touches.length === 1 && modoRef.current !== 'georef') {
-        const prev = lastTouches.current[0]
-        if (!prev) return
-        const t  = e.touches[0]
-        const dx = t.clientX - prev.clientX
-        const dy = t.clientY - prev.clientY
-        const o  = offsetRef.current
-        offsetRef.current = { x: o.x + dx, y: o.y + dy }
-        setOffset({ ...offsetRef.current })
-        lastTouches.current = Array.from(e.touches)
-      } else if (e.touches.length === 2) {
-        const t1 = e.touches[0], t2 = e.touches[1]
-        const dist = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
-        if (lastPinchDist.current) {
-          const factor = dist / lastPinchDist.current
-          const rect   = el.getBoundingClientRect()
-          const cx     = ((t1.clientX+t2.clientX)/2) - rect.left
-          const cy     = ((t1.clientY+t2.clientY)/2) - rect.top
-          const z      = zoomRef.current
-          const o      = offsetRef.current
-          const nz     = Math.min(Math.max(z * factor, 0.2), 10)
-          zoomRef.current   = nz
-          offsetRef.current = { x: cx - (cx - o.x)*(nz/z), y: cy - (cy - o.y)*(nz/z) }
-          setZoom(nz)
-          setOffset({ ...offsetRef.current })
-        }
-        lastPinchDist.current = dist
-        lastTouches.current   = Array.from(e.touches)
-      }
-    }
-
-    function onTouchEnd(e) {
-      lastTouches.current = Array.from(e.touches)
-      if (e.touches.length < 2) lastPinchDist.current = null
-    }
-
     const opts = { passive: false }
+    const onWheel      = e => wheelHandlerRef.current(e)
+    const onTouchStart = e => touchStartHandlerRef.current(e)
+    const onTouchMove  = e => touchMoveHandlerRef.current(e)
+    const onTouchEnd   = e => touchEndHandlerRef.current(e)
     el.addEventListener('wheel',      onWheel,      opts)
     el.addEventListener('touchstart', onTouchStart, opts)
     el.addEventListener('touchmove',  onTouchMove,  opts)
@@ -187,7 +188,7 @@ export default function MapaPage() {
       el.removeEventListener('touchmove',  onTouchMove,  opts)
       el.removeEventListener('touchend',   onTouchEnd,   opts)
     }
-  }, []) // solo al montar — usa refs para leer valores actuales
+  }, []) // solo al montar
 
   // ── Subir imagen ──────────────────────────────────────────────
   async function handleFileChange(e) {
@@ -490,15 +491,15 @@ export default function MapaPage() {
                   }}
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; setTooltip(null) }}
                   onTouchStart={e => {
-                    e.stopPropagation()
+                    // No stopPropagation - dejamos que el contenedor maneje pan/zoom
                     const touch = e.touches[0]
                     const rect  = containerRef.current?.getBoundingClientRect()
                     const cx    = rect ? touch.clientX - rect.left : 0
                     const cy    = rect ? touch.clientY - rect.top  : 0
-                    longPressTimer.current = setTimeout(() => setTooltip({ s, est, cx, cy }), 400)
+                    longPressTimer.current = setTimeout(() => setTooltip({ s, est, cx, cy }), 500)
                   }}
                   onTouchMove={() => clearTimeout(longPressTimer.current)}
-                  onTouchEnd={e => { e.stopPropagation(); clearTimeout(longPressTimer.current) }}
+                  onTouchEnd={() => clearTimeout(longPressTimer.current)}
                 />
               )
             })}
