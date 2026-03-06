@@ -68,12 +68,14 @@ export default function MapaPage() {
   const lastTouches   = useRef([])
   const lastPinch     = useRef(null)
   const longPress     = useRef(null)
+  const sondajesRef   = useRef([])
 
   // Mantener stateRef sincronizado
   useEffect(() => { stateRef.current.zoom      = zoom      }, [zoom])
   useEffect(() => { stateRef.current.offset    = offset    }, [offset])
   useEffect(() => { stateRef.current.modo      = modo      }, [modo])
   useEffect(() => { stateRef.current.transform = transform }, [transform])
+  useEffect(() => { sondajesRef.current = sondajes }, [sondajes])
   useEffect(() => { stateRef.current.imgDispW  = imgDispW; stateRef.current.imgDispH = imgDispH }, [imgDispW, imgDispH])
   useEffect(() => { stateRef.current.imgNatW   = imgNatW;  stateRef.current.imgNatH  = imgNatH  }, [imgNatW,  imgNatH])
 
@@ -164,12 +166,31 @@ export default function MapaPage() {
 
   handlersRef.current.touchstart = function(e) {
     const isBtn = !!e.target.closest('button')
-    const isDot = !!e.target.closest('[data-dot]')
+    const dotEl = e.target.closest('[data-dot]')
     if (!isBtn) e.preventDefault()
-    if (isDot) return  // dot maneja su propio longpress via React
-    setTooltip(null)
-    clearTimeout(longPress.current)
+
+    // Siempre inicializar lastTouches para que pan funcione después
     lastTouches.current = Array.from(e.touches)
+    clearTimeout(longPress.current)
+
+    if (dotEl) {
+      // Long press manejado aquí (nativo) — React onTouchStart puede no dispararse tras preventDefault
+      const touch = e.touches[0]
+      const rect  = containerRef.current?.getBoundingClientRect()
+      const cx    = rect ? touch.clientX - rect.left : 0
+      const cy    = rect ? touch.clientY - rect.top  : 0
+      // Leer datos del dot desde el atributo data
+      const ddhid = dotEl.getAttribute('data-ddhid')
+      longPress.current = setTimeout(() => {
+        // Buscar el sondaje en el state actual usando el ref
+        const s = sondajesRef.current.find(s => s.DDHID === ddhid)
+        if (s) setTooltip({ s, est: normEst(s.ESTADO), cx, cy })
+      }, 500)
+      return
+    }
+
+    // Toque fuera de dot: cerrar tooltip
+    setTooltip(null)
     if (e.touches.length === 2) {
       lastPinch.current = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -182,7 +203,7 @@ export default function MapaPage() {
 
   handlersRef.current.touchmove = function(e) {
     e.preventDefault()
-    clearTimeout(longPress.current)
+    clearTimeout(longPress.current)  // mover cancela long press
     if (e.touches.length === 1) {
       const prev = lastTouches.current[0]
       if (prev) {
@@ -510,7 +531,7 @@ export default function MapaPage() {
               const color = ESTADO_COLOR[est]
               const r     = (est==='En Proceso' ? 9 : 7) / zoom
               return (
-                <div key={s.DDHID} data-dot="1" style={{
+                <div key={s.DDHID} data-dot="1" data-ddhid={s.DDHID} style={{
                   position:'absolute', left:pos.x-r, top:pos.y-r,
                   width:r*2, height:r*2, borderRadius:'50%',
                   background:color, border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
@@ -522,16 +543,7 @@ export default function MapaPage() {
                     setTooltip({ s, est, cx: pos.x*z + o.x, cy: pos.y*z + o.y })
                   }}
                   onMouseLeave={() => setTooltip(null)}
-                  onTouchStart={e => {
-                    const touch = e.touches[0]
-                    const rect  = containerRef.current?.getBoundingClientRect()
-                    const cx    = rect ? touch.clientX - rect.left : 0
-                    const cy    = rect ? touch.clientY - rect.top  : 0
-                    lastTouches.current = Array.from(e.touches)
-                    longPress.current = setTimeout(() => setTooltip({ s, est, cx, cy }), 500)
-                  }}
-                  onTouchMove={() => clearTimeout(longPress.current)}
-                  onTouchEnd={() => clearTimeout(longPress.current)}
+                  // touch manejado en handler nativo (handlersRef.current.touchstart)
                 />
               )
             })}
