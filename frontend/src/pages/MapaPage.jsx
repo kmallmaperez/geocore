@@ -56,8 +56,8 @@ export default function MapaPage() {
   const [offset,     setOffset]     = useState({ x:0, y:0 })
   const [tooltip,    setTooltip]    = useState(null)
   const [mouseCoord, setMouseCoord] = useState(null)
-  // filtro: array de strings que SI se muestran
-  const [mostrar,    setMostrar]    = useState(['Completado', 'En Proceso', 'Pendiente'])
+  // filtro CSS: ocultar estados por clase
+  const [ocultar,    setOcultar]    = useState({Completado:false,'En Proceso':false,Pendiente:false})
 
   const containerRef = useRef(null)
   const imgRef       = useRef(null)
@@ -124,13 +124,9 @@ export default function MapaPage() {
     }).catch(console.error).finally(() => setLoading(false))
   }, [])
 
-  // toggle filtro — método más simple posible
+  // toggle filtro — solo cambia un booleano
   function toggleEstado(est) {
-    setMostrar(prev =>
-      prev.includes(est)
-        ? prev.filter(e => e !== est)   // quitar
-        : [...prev, est]                // agregar
-    )
+    setOcultar(prev => ({ ...prev, [est]: !prev[est] }))
   }
 
   // ── Zoom / pan helpers ────────────────────────────────────────
@@ -405,7 +401,7 @@ export default function MapaPage() {
             const total = sondajes.filter(s=>s.ESTADO===est).length
             const conC  = sondajes.filter(s=>s.ESTADO===est&&s.ESTE&&s.NORTE).length
             const label = est==='Pendiente' ? `${conC}📍/${total}` : conC
-            const activo = mostrar.includes(est)
+            const activo = !ocultar[est]
             return (
               <button key={est} onClick={()=>toggleEstado(est)}
                 style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:'pointer',
@@ -468,8 +464,7 @@ export default function MapaPage() {
             {/* ── SONDAJES — filtro con mostrar[] ── */}
 
             {calibrado && imgDispW>0 && sondajes.map(s => {
-              // FILTRO: si el estado del sondaje no está en el array mostrar, no renderizar
-              if (!mostrar.includes(s.ESTADO)) return null
+              // ocultar con CSS — no con return null
               if (!s.ESTE || !s.NORTE) return null
               const pos = posDisplay(s)
               if (!pos) return null
@@ -481,6 +476,7 @@ export default function MapaPage() {
                     width:r*2,height:r*2,borderRadius:'50%',
                     background:col,border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
                     cursor:'pointer',zIndex:5,
+                    display: ocultar[s.ESTADO] ? 'none' : 'block',
                     boxShadow:s.ESTADO==='En Proceso'?`0 0 ${8/zoom}px ${col}`:`0 1px ${3/zoom}px rgba(0,0,0,.3)`,
                   }}
                   onMouseEnter={()=>{
