@@ -123,7 +123,11 @@ export default function MapaPage() {
   }
 
   touchStartHandlerRef.current = function(e) {
-    e.preventDefault()
+    // No prevenir si el toque es sobre un botón o punto (dejar que actúen)
+    const tag = e.target.tagName
+    const isDot = e.target.closest('[data-dot]')
+    const isBtn = tag === 'BUTTON' || e.target.closest('button')
+    if (!isBtn) e.preventDefault()
     lastTouches.current = Array.from(e.touches)
     if (e.touches.length === 1) {
       lastPinchDist.current = null
@@ -132,6 +136,8 @@ export default function MapaPage() {
       const t1 = e.touches[0], t2 = e.touches[1]
       lastPinchDist.current = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY)
     }
+    // Cerrar tooltip si toca fuera de un punto
+    if (!isDot) setTooltip(null)
   }
 
   touchMoveHandlerRef.current = function(e) {
@@ -496,15 +502,15 @@ export default function MapaPage() {
                   }}
                   onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; setTooltip(null) }}
                   onTouchStart={e => {
-                    // No stopPropagation - dejamos que el contenedor maneje pan/zoom
+                    e.stopPropagation() // no pasar al contenedor para no cancelar long press
                     const touch = e.touches[0]
                     const rect  = containerRef.current?.getBoundingClientRect()
                     const cx    = rect ? touch.clientX - rect.left : 0
                     const cy    = rect ? touch.clientY - rect.top  : 0
                     longPressTimer.current = setTimeout(() => setTooltip({ s, est, cx, cy }), 500)
                   }}
-                  onTouchMove={() => clearTimeout(longPressTimer.current)}
-                  onTouchEnd={() => clearTimeout(longPressTimer.current)}
+                  onTouchMove={e => { e.stopPropagation(); clearTimeout(longPressTimer.current) }}
+                  onTouchEnd={e => { e.stopPropagation(); clearTimeout(longPressTimer.current) }}
                 />
               )
             })}
@@ -551,11 +557,19 @@ export default function MapaPage() {
           })()}
 
           {/* Botones zoom */}
-          <div style={{ position:'absolute', bottom:46, right:12, display:'flex', flexDirection:'column', gap:4, zIndex:15 }}>
-            <button className="btn btn-out btn-sm" style={{ width:36, height:36, padding:0, fontSize:20, lineHeight:1 }} onClick={() => zoomBtn(1.3)}>+</button>
-            <button className="btn btn-out btn-sm" style={{ width:36, height:36, padding:0, fontSize:20, lineHeight:1 }} onClick={() => zoomBtn(0.77)}>−</button>
-            <button className="btn btn-out btn-sm" style={{ width:36, height:36, padding:0, fontSize:13 }}
-              onClick={() => { setZoom(1); zoomRef.current=1; setOffset({x:0,y:0}); offsetRef.current={x:0,y:0} }}>⌂</button>
+          <div style={{ position:'absolute', bottom:46, right:12, display:'flex', flexDirection:'column', gap:4, zIndex:20 }}>
+            {[
+              { label:'+', action: () => zoomBtn(1.3) },
+              { label:'−', action: () => zoomBtn(0.77) },
+              { label:'⌂', action: () => { setZoom(1); zoomRef.current=1; setOffset({x:0,y:0}); offsetRef.current={x:0,y:0} } },
+            ].map(({ label, action }) => (
+              <button key={label} className="btn btn-out btn-sm"
+                style={{ width:44, height:44, padding:0, fontSize: label==='⌂'?16:22, lineHeight:1, touchAction:'manipulation' }}
+                onClick={action}
+                onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); action() }}>
+                {label}
+              </button>
+            ))}
           </div>
 
           {/* % zoom */}
