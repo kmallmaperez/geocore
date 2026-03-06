@@ -97,7 +97,11 @@ export default function MapaPage() {
         // Dedup por DDHID
         const seen = new Map()
         ;(sRes.data || []).forEach(s => seen.set(s.DDHID, s))
-        setSondajes([...seen.values()])
+        const arr = [...seen.values()]
+        // Debug: mostrar sondajes con ESTE/NORTE que no sean Completado ni En Proceso
+        const raros = arr.filter(s => s.ESTE && s.NORTE && !['Completado','En Proceso'].includes((s.ESTADO||'').trim()))
+        console.log('Sondajes con coords que aparecen como Pendiente:', raros.map(s => ({ DDHID:s.DDHID, ESTADO:s.ESTADO, PCT:s.PCT, ESTE:s.ESTE, NORTE:s.NORTE })))
+        setSondajes(arr)
       }).catch(console.error).finally(() => setLoading(false))
   }, [])
 
