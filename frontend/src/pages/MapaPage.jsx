@@ -466,15 +466,7 @@ export default function MapaPage() {
             ))}
 
             {/* ── SONDAJES — filtro con mostrar[] ── */}
-            {calibrado && imgDispW>0 && (() => {
-              // LOG DIAGNÓSTICO — borrar después
-              const unicos = [...new Set(sondajes.map(s=>s.ESTADO))]
-              console.log('mostrar:', JSON.stringify(mostrar))
-              console.log('ESTADOS únicos en sondajes:', JSON.stringify(unicos))
-              console.log('chars de "Pendiente" en data:', unicos.map(u=>([...u].map(c=>c.charCodeAt(0)))))
-              console.log('chars de mostrar[2]:', [...mostrar[2]].map(c=>c.charCodeAt(0)))
-              return null
-            })()}
+
             {calibrado && imgDispW>0 && sondajes.map(s => {
               // FILTRO: si el estado del sondaje no está en el array mostrar, no renderizar
               if (!mostrar.includes(s.ESTADO)) return null
