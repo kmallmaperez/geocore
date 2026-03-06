@@ -392,6 +392,15 @@ export default function MapaPage() {
                 {modo==='georef' ? '✅ Georeferenciando...' : '📍 Georeferenciar'}
               </button>
             )}
+            {sondajes.length > 0 && (
+              <button className="btn btn-out" onClick={() => {
+                const cols = ['DDHID','PLATAFORMA','EQUIPO','ESTE','NORTE','ESTADO','PROGRAMADO','EJECUTADO','PCT','FECHA_INICIO','FECHA_FIN']
+                const rows = [cols.join(','), ...sondajes.map(s => cols.map(k => JSON.stringify(s[k] ?? '')).join(','))]
+                const blob = new Blob([rows.join('\n')], { type:'text/csv' })
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+                a.download = 'sondajes_mapa.csv'; a.click()
+              }}>📥 Exportar CSV</button>
+            )}
           </div>
         )}
       </div>
