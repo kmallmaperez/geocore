@@ -118,8 +118,11 @@ export default function QuickLogPage() {
 
   // ── Cargar sondajes ─────────────────────────────────────────────
   useEffect(() => {
-    api.get('/tables/ddhids/l_geologico').then(r => {
-      setDdhids((r.data||[]).slice().sort())
+    api.get('/tables/programa_general').then(r => {
+      setDdhids((r.data||[])
+        .map(x => x.DDHID || x.ddhid)
+        .filter(x => x && String(x).trim() !== '')
+        .sort())
     })
   }, [])
 
