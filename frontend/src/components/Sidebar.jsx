@@ -8,6 +8,7 @@ const NAV = [
   { section: 'Principal' },
   { id: '/dashboard',              ico: '📊', lbl: 'Dashboard' },
   { id: '/resumen',                ico: '📋', lbl: 'Resumen de Sondajes' },
+  { id: '/quicklog', ico: '📋', lbl: 'Quick Log' },
   { id: '/mapa',                   ico: '🗺',  lbl: 'Mapa de Sondajes' },
   { section: 'Tablas' },
   { id: '/tabla/programa_general', ico: '🗺',  lbl: 'Programa General', roles: ['ADMIN','SUPERVISOR'] },

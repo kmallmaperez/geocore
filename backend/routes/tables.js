@@ -49,6 +49,78 @@ function toRow(dbRow) {
 
 // ── RUTAS ESPECIALES (antes de /:table) ──────────────────────────
 
+// GET /api/tables/ddhids/:tkey
+// Devuelve los DDHID activos (no completados) filtrados por profundidad alcanzada en esa tabla.
+// Si max(To) >= PROGRAMADO el sondaje ya no aparece en el dropdown de esa tabla.
+router.get('/ddhids/:tkey', authMiddleware, async (req, res) => {
+  const { tkey } = req.params
+
+  // Campo "To" por tabla
+  const TO_FIELD = {
+    perforacion:  null,          // especial: max(TO_Dia, To_Noche)
+    recepcion:    '"TO"',
+    recuperacion: '"To"',
+    fotografia:   '"To"',
+    l_geotecnico: '"To"',
+    l_geologico:  '"To"',
+    muestreo:     '"HASTA"',
+    corte:        '"A"',
+  }
+
+  try {
+    // 1. Todos los sondajes con su PROGRAMADO (no completados)
+    const progRes = await db.query(`
+      SELECT pg."DDHID", COALESCE(pg."LENGTH", 0) AS programado
+      FROM programa_general pg
+      WHERE pg."DDHID" IS NOT NULL AND pg."DDHID" <> ''
+      ORDER BY pg."DDHID"
+    `)
+
+    // 2. Calcular profundidad máxima registrada en la tabla para cada DDHID
+    let alcanzado = {}   // { DDHID: maxTo }
+
+    if (tkey === 'perforacion') {
+      const r = await db.query(`
+        SELECT "DDHID",
+               MAX(GREATEST(
+                 COALESCE("TO_Dia"::numeric,   0),
+                 COALESCE("To_Noche"::numeric, 0)
+               )) AS max_to
+        FROM perforacion
+        WHERE "DDHID" IS NOT NULL
+        GROUP BY "DDHID"
+      `)
+      r.rows.forEach(x => { alcanzado[x.DDHID] = parseFloat(x.max_to) || 0 })
+
+    } else if (TO_FIELD[tkey]) {
+      const field = TO_FIELD[tkey]
+      const r = await db.query(`
+        SELECT "DDHID", MAX(NULLIF(TRIM(${field}::text),'')::numeric) AS max_to
+        FROM ${tkey}
+        WHERE "DDHID" IS NOT NULL
+        GROUP BY "DDHID"
+      `)
+      r.rows.forEach(x => { alcanzado[x.DDHID] = parseFloat(x.max_to) || 0 })
+    }
+    // Para tablas sin campo To (envios, batch, tormentas) alcanzado queda vacío → todos aparecen
+
+    // 3. Filtrar: sondaje aparece si max_alcanzado < programado (o no tiene registros aún)
+    const result = progRes.rows
+      .filter(s => {
+        const prog = parseFloat(s.programado) || 0
+        const alc  = alcanzado[s.DDHID] ?? -1   // -1 = sin registros → siempre aparece
+        if (prog <= 0) return true               // sin programado definido → siempre aparece
+        return alc < prog
+      })
+      .map(s => s.DDHID)
+
+    res.json(result)
+  } catch (e) {
+    console.error('ddhids/:tkey error:', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // GET /api/tables/resumen/general
 router.get('/resumen/general', authMiddleware, async (req, res) => {
   try {
@@ -126,20 +198,21 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     const [prog, perf, recep, recup, foto, geotec, geolog, ov] = await Promise.all([
       db.query('SELECT * FROM programa_general'),
       db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia" FROM perforacion ORDER BY "Fecha"'),
-      db.query('SELECT "DDHID", "Fecha", "Metros" FROM recepcion'),
-      db.query('SELECT "DDHID", "Fecha", "Avance" FROM recuperacion'),
-      db.query('SELECT "DDHID", "Fecha", "Avance" FROM fotografia'),
-      db.query('SELECT "DDHID", "Fecha", "Avance" FROM l_geotecnico'),
-      db.query('SELECT "DDHID", "Fecha", "Avance" FROM l_geologico'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("TO" ::text),\'\')::numeric) AS max_to FROM recepcion    GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM recuperacion  GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM fotografia    GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM l_geotecnico  GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM l_geologico   GROUP BY "DDHID"'),
       db.query('SELECT * FROM estado_overrides'),
     ])
 
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
 
-    // Suma por DDHID helper
-    function sumBy(rows, ddhid, col) {
-      return rows.filter(r => r.DDHID === ddhid).reduce((s, r) => s + (parseFloat(r[col]) || 0), 0)
+    // MAX(To) por DDHID helper — cada tabla viene agrupada
+    function maxBy(rows, ddhid) {
+      const row = rows.find(r => r.DDHID === ddhid)
+      return parseFloat(row?.max_to || 0)
     }
 
     // Tabla de resumen por sondaje
@@ -181,11 +254,11 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
           EQUIPO: p.EQUIPO ? String(p.EQUIPO).trim() : '',
           PROGRAMADO: programado2,
           PERFORADO:  parseFloat(perfTotal.toFixed(1)),
-          RECEPCION:  parseFloat(sumBy(recep.rows,  p.DDHID, 'Metros').toFixed(1)),
-          RECUPERADO: parseFloat(sumBy(recup.rows,  p.DDHID, 'Avance').toFixed(1)),
-          FOTOGRAFIADO: parseFloat(sumBy(foto.rows, p.DDHID, 'Avance').toFixed(1)),
-          GEOTECNICO: parseFloat(sumBy(geotec.rows, p.DDHID, 'Avance').toFixed(1)),
-          GEOLOGICO:  parseFloat(sumBy(geolog.rows, p.DDHID, 'Avance').toFixed(1)),
+          RECEPCION:    parseFloat(maxBy(recep.rows,  p.DDHID).toFixed(1)),
+          RECUPERADO:   parseFloat(maxBy(recup.rows,  p.DDHID).toFixed(1)),
+          FOTOGRAFIADO: parseFloat(maxBy(foto.rows,   p.DDHID).toFixed(1)),
+          GEOTECNICO:   parseFloat(maxBy(geotec.rows, p.DDHID).toFixed(1)),
+          GEOLOGICO:    parseFloat(maxBy(geolog.rows, p.DDHID).toFixed(1)),
           ESTADO: overrides[p.DDHID] || estadoCalc,
           PCT: pct,
           FECHA_INICIO: fechaInicio2 || null,
@@ -205,14 +278,14 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       return fechas[fechas.length-1] || ''
     }
 
-    // Totales globales
+    // Totales globales — suma de MAX(To) por sondaje (ya vienen agrupados)
     const totales = {
       perforado:    parseFloat(perf.rows.reduce((s,r) => s+(parseFloat(r.Total_Dia)||0),0).toFixed(1)),
-      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.Metros)||0),0).toFixed(1)),
-      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
-      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
-      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
-      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.Avance)||0),0).toFixed(1)),
+      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
+      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
+      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
+      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
+      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
     }
 
     // Últimas fechas de reporte por tabla

@@ -38,7 +38,8 @@ export default function TablePage() {
   useEffect(() => {
     setRows([]); setLoading(true); setSearch(''); setFilterD(''); setSortCol(null)
     api.get(`/tables/${tkey}`).then(r => setRows(r.data)).finally(() => setLoading(false))
-    api.get('/tables/programa_general').then(r => setDdhids(r.data.map(x => x.DDHID).filter(Boolean)))
+    // Sondajes disponibles: filtrados por profundidad alcanzada en esta tabla
+    api.get(`/tables/ddhids/${tkey}`).then(r => setDdhids(r.data || []))
   }, [tkey])
 
   function toggleSort(col) {

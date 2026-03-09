@@ -9,6 +9,7 @@ const importRoutes = require('./routes/import')
 const exportRoutes  = require('./routes/export')
 const excelRoutes   = require('./routes/exportExcel')
 const mapaRoutes    = require('./routes/mapa')
+const quicklogRoutes = require('./routes/quicklog')
 
 const app = express()
 
@@ -24,6 +25,7 @@ app.use('/api/tables', tablesRoutes)
 app.use('/api/export', exportRoutes)
 app.use('/api/excel',  excelRoutes)
 app.use('/api/mapa',   mapaRoutes)
+app.use('/api/quicklog', quicklogRoutes)
 app.use('/api/import', importRoutes)
 
 app.get('/', (req, res) => res.json({ message: 'GeoCore API activa', version: '2.0' }))
