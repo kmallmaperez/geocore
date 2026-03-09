@@ -1,53 +1,53 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../utils/api'
 import Toast, { useToast } from '../components/Toast'
+import { useAuth } from '../context/AuthContext'
 
 // ── Catálogos ─────────────────────────────────────────────────────
 const LITO_LIST = [
   { cod:0,  desc:'Cobertura' },
-  { cod:1,  desc:'Diorita/Andesita Porfiritica' },
-  { cod:2,  desc:'Granodiorica' },
-  { cod:3,  desc:'Porfido Feldespatico' },
-  { cod:4,  desc:'Porfido Cuarcifero' },
-  { cod:5,  desc:'Porfido Dacitico' },
-  { cod:6,  desc:'Porfido Yantac' },
+  { cod:1,  desc:'Diorita/Andesita Porfirita' },
+  { cod:2,  desc:'Granodiorita' },
+  { cod:3,  desc:'Pórfido Feldespático' },
+  { cod:4,  desc:'Pórfido Cuarcífero' },
+  { cod:5,  desc:'Pórfido Dacítico' },
+  { cod:6,  desc:'Pórfido Yantac' },
   { cod:7,  desc:'Endoskarn' },
+  { cod:10, desc:'Hornfels' },
   { cod:11, desc:'Skarn' },
   { cod:12, desc:'Skarn de Magnetita' },
   { cod:13, desc:'Basalto Montero' },
-  { cod:14, desc:'Hornfels' },
+  { cod:14, desc:'Sedimentos Calcareos' },
   { cod:15, desc:'Shale (Lutitas)' },
-  { cod:16, desc:'Sedimentos Calcareos' },
+  { cod:16, desc:'Volcánicos Catalina' },
   { cod:17, desc:'Anhidrita / Yeso' },
   { cod:18, desc:'Sandstone (Areniscas)' },
   { cod:19, desc:'Brecha en Igneos' },
-  { cod:20, desc:'Brecha en Sedimentos' },
-  { cod:21, desc:'Volcanicos Catalina' },
+  { cod:20, desc:'Brecha en sedimentarios' },
   { cod:25, desc:'Relleno' },
 ]
 const ALTER_BY_LITO = {
   0:  [{ cod:0,  desc:'Cobertura' },{ cod:25, desc:'Relleno' }],
-  1:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  2:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  3:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  4:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  5:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  6:  [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argilica' },{ cod:25, desc:'Relleno' }],
-  7:  [{ cod:5,  desc:'Argilica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:10, desc:'Skarn de Serpentina Magnetita' },{ cod:11, desc:'Skarn de Diopsido-Granate' },{ cod:25, desc:'Relleno' }],
-  11: [{ cod:5,  desc:'Argilica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:25, desc:'Relleno' }],
-  12: [{ cod:5,  desc:'Argilica' },{ cod:18, desc:'Skarn de Magnetita' },{ cod:25, desc:'Relleno' }],
-  13: [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argilica' },{ cod:25, desc:'Relleno' }],
-  14: [{ cod:5,  desc:'Argilica' },{ cod:12, desc:'Honfels Verde - Diopsido en Horfels' },{ cod:25, desc:'Relleno' }],
-  15: [{ cod:5,  desc:'Argilica' },{ cod:17, desc:'Shale (Lutitas)' },{ cod:25, desc:'Relleno' }],
-  16: [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argilica' },{ cod:15, desc:'Sedimentos Calcareos - Marmol' },{ cod:25, desc:'Relleno' }],
-  17: [{ cod:5,  desc:'Argilica' },{ cod:16, desc:'Anhidrita / Yeso - Marmol' },{ cod:25, desc:'Relleno' }],
-  18: [{ cod:5,  desc:'Argilica' },{ cod:19, desc:'Sandstone (Areniscas)' },{ cod:25, desc:'Relleno' }],
-  19: [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argilica' },{ cod:6,  desc:'Silicificacion' },{ cod:25, desc:'Relleno' }],
-  20: [{ cod:5,  desc:'Argilica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:10, desc:'Skarn de Serpentina Magnetita' },{ cod:11, desc:'Skarn de Diopsido-Granate' },{ cod:25, desc:'Relleno' }],
-  21: [{ cod:5,  desc:'Argilica' },{ cod:25, desc:'Relleno' }],
+  1:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  2:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  3:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  4:  [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  5:  [{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  6:  [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argílica' },{ cod:25, desc:'Relleno' }],
+  7:  [{ cod:5,  desc:'Argílica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:10, desc:'Skarn de Serpentina-Magnetita' },{ cod:11, desc:'Skarn de Diopsido-Granate' },{ cod:25, desc:'Relleno' }],
+  10: [{ cod:5,  desc:'Argílica' },{ cod:12, desc:'Hornfels Verde - Diopsido en Hornfels' },{ cod:25, desc:'Relleno' }],
+  11: [{ cod:5,  desc:'Argílica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:10, desc:'Skarn de Serpentina-Magnetita' },{ cod:11, desc:'Skarn de Diopsido-Granate' },{ cod:25, desc:'Relleno' }],
+  12: [{ cod:5,  desc:'Argílica' },{ cod:18, desc:'Skarn de Magnetita' },{ cod:25, desc:'Relleno' }],
+  13: [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argílica' },{ cod:25, desc:'Relleno' }],
+  14: [{ cod:5,  desc:'Argílica' },{ cod:15, desc:'Sedimentos Calcareos - Marmol' },{ cod:25, desc:'Relleno' }],
+  15: [{ cod:5,  desc:'Argílica' },{ cod:17, desc:'Shale (Lutitas)' },{ cod:25, desc:'Relleno' }],
+  16: [{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:5,  desc:'Argílica' },{ cod:25, desc:'Relleno' }],
+  17: [{ cod:5,  desc:'Argílica' },{ cod:16, desc:'Anhidrita / Yeso' },{ cod:25, desc:'Relleno' }],
+  18: [{ cod:5,  desc:'Argílica' },{ cod:19, desc:'Sandstone (Areniscas)' },{ cod:25, desc:'Relleno' }],
+  19: [{ cod:2,  desc:'Biotita y/o Feldespato potasico (Potasica)' },{ cod:3,  desc:'Cloritica (Propilitica)' },{ cod:4,  desc:'Sericitica (Filica)' },{ cod:5,  desc:'Argílica' },{ cod:6,  desc:'Silicificación' },{ cod:25, desc:'Relleno' }],
+  20: [{ cod:5,  desc:'Argílica' },{ cod:9,  desc:'Skarn de Tremolita-Actinolita, Clorita' },{ cod:10, desc:'Skarn de Serpentina-Magnetita' },{ cod:11, desc:'Skarn de Diopsido-Granate' },{ cod:25, desc:'Relleno' }],
   25: [{ cod:25, desc:'Relleno' }],
 }
-
 function newRow(from = '0') {
   return { _id: Math.random().toString(36).slice(2), from: String(from), to: '', lito_cod: null, lito_desc: '', alter_cod: null, alter_desc: '', extra: '', obs: '' }
 }
@@ -106,6 +106,9 @@ function Popup({ items, anchor, onSelect, onClose }) {
 // ── Componente principal ──────────────────────────────────────────
 export default function QuickLogPage() {
   const { toast, show } = useToast()
+  const { user }        = useAuth()
+  const canEdit = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR' ||
+                  (Array.isArray(user?.tables) && (user.tables.includes('all') || user.tables.includes('quicklog')))
   const [ddhids,    setDdhids]    = useState([])
   const [ddhid,     setDdhid]     = useState('')
   const [rows,      setRows]      = useState([newRow()])
@@ -148,7 +151,7 @@ export default function QuickLogPage() {
   const autoSave = useCallback((currentDdhid, currentRows) => {
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
-      if (!currentDdhid) return
+      if (!currentDdhid || !canEdit) return
       const data = currentRows.filter(r => r.lito_desc !== '')
       setSaving(true)
       try {
@@ -277,6 +280,7 @@ export default function QuickLogPage() {
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           {saving && <span style={{fontSize:11,color:'var(--mut)',fontStyle:'italic'}}>💾 Guardando...</span>}
+          {!canEdit && <span style={{fontSize:12,color:'var(--mut)',background:'var(--sur2)',border:'1px solid var(--brd)',borderRadius:6,padding:'4px 10px'}}>👁 Solo lectura</span>}
           <button className="btn btn-out" onClick={exportCSV} disabled={!ddhid||rows.every(r=>!r.lito_desc)}>📥 Exportar sondaje</button>
           <button className="btn btn-out" onClick={exportAll}>📦 Exportar todos</button>
         </div>
@@ -425,7 +429,7 @@ export default function QuickLogPage() {
             <div style={{padding:'10px 16px',borderTop:'1px solid var(--brd)'}}>
               <button onClick={addRow} className="btn btn-out btn-sm"
                 style={{display:'flex',alignItems:'center',gap:6,fontSize:12}}
-                disabled={!ddhid}>
+                disabled={!ddhid || !canEdit}>
                 <span style={{fontSize:16,lineHeight:1}}>+</span> Agregar tramo
               </button>
             </div>

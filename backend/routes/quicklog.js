@@ -43,6 +43,14 @@ router.get('/:ddhid', authMiddleware, async (req, res) => {
 
 // POST /api/quicklog
 router.post('/', authMiddleware, async (req, res) => {
+  // Verificar permiso: ADMIN/SUPERVISOR siempre pueden, USER necesita 'quicklog' o 'all'
+  const u = req.user
+  if (u.role === 'USER') {
+    const tables = Array.isArray(u.tables) ? u.tables : []
+    if (!tables.includes('all') && !tables.includes('quicklog')) {
+      return res.status(403).json({ error: 'Sin permiso para escribir en Quick Log' })
+    }
+  }
   const { ddhid, rows } = req.body
   if (!ddhid) return res.status(400).json({ error: 'ddhid requerido' })
   try {

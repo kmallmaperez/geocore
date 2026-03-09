@@ -50,7 +50,7 @@ export default function Sidebar() {
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
     if (user.role !== 'USER') return true
-    if (['/dashboard','/resumen','/exportar','/mapa'].includes(item.id)) return true
+    if (['/dashboard','/resumen','/exportar','/mapa','/quicklog'].includes(item.id)) return true
     const tkey = item.id?.replace('/tabla/', '')
     if (TABLE_KEYS.includes(tkey))
       return user.tables.includes('all') || user.tables.includes(tkey)
