@@ -33,7 +33,7 @@ const TABLES = {
 }
 
 const SHEET_NAMES = {
-  resumen_dashboard: 'Resumen Dashboard', resumen_general: 'Resumen de Sondajes y Plataforma', programa_general: 'Programa General',
+  resumen_dashboard: 'Resumen de Avances', resumen_general: 'Resumen de Sondajes y Plataforma', programa_general: 'Programa General',
   perforacion: 'Perforación',         recepcion: 'Recepción',
   recuperacion: 'Recuperación',       fotografia: 'Fotografía',
   l_geotecnico: 'L_Geotécnico',       l_geologico: 'L_Geológico',
@@ -174,16 +174,20 @@ router.get('/download', authMiddleware, async (req, res) => {
     const geotMap  = {}; geotQ.rows.forEach(r   => { geotMap[r.DDHID]  = parseFloat(r.max_to)||0 })
     const geolMap  = {}; geolQ.rows.forEach(r   => { geolMap[r.DDHID]  = parseFloat(r.max_to)||0 })
     const ovMap    = {}; ovQ.rows.forEach(r     => { ovMap[r.ddhid]    = r.estado })
-    const platMap  = {}; platRows.forEach(r     => { platMap[r.DDHID]  = r })
+    const platMap  = {}
+    platRows.forEach(r => {
+      if (r.DDHID)      platMap[r.DDHID] = r
+      if (r.PLATAFORMA && !r.DDHID) platMap['__PLAT__' + String(r.PLATAFORMA).trim()] = r
+    })
 
     function buildResumenRow(p) {
       const ej     = perfMap[p.DDHID] || 0
       const pct    = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
       const eCalc  = pct >= 100 ? 'Completado' : ej > 0 ? 'En Proceso' : 'Pendiente'
       const estado = ovMap[p.DDHID] || eCalc
-      const plat   = platMap[p.DDHID] || {}
+      const plat   = platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()] || {}
       return {
-        DDHID:        p.DDHID,
+        DDHID:        p.DDHID || '',
         EQUIPO:       p.EQUIPO || '',
         PLATAFORMA:   p.PLATAFORMA || '',
         PROGRAMADO:   parseFloat(p.LENGTH || 0),
@@ -205,13 +209,20 @@ router.get('/download', authMiddleware, async (req, res) => {
     }
 
     const allResumen = pg.rows
-      .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
+      .filter(p => {
+        const tieneDDHID = p.DDHID && String(p.DDHID).trim() !== ''
+        const platKey    = '__PLAT__' + String(p.PLATAFORMA||'').trim()
+        const platInfo   = platMap[p.DDHID] || platMap[platKey] || {}
+        const tienePlat  = platInfo.status_plataforma || platInfo.fecha_entrega_plataforma || platInfo.entregado_por
+        return tieneDDHID || tienePlat
+      })
       .map(buildResumenRow)
 
-    // ── HOJA 1: Resumen Dashboard (al inicio) ───────────────────
+    // ── HOJA 1: Resumen de Avances — solo sondajes con DDHID ──────
     const dashCols = ['DDHID','EQUIPO','PLATAFORMA','ESTADO','PROGRAMADO','EJECUTADO',
                       'RECEPCION','RECUPERADO','FOTOGRAFIADO','GEOTECNICO','GEOLOGICO','PCT']
-    await buildSheet(ExcelJS, wb, 'resumen_dashboard', dashCols, allResumen)
+    const dashRows = allResumen.filter(r => r.DDHID && String(r.DDHID).trim() !== '')
+    await buildSheet(ExcelJS, wb, 'resumen_dashboard', dashCols, dashRows)
 
     // ── HOJA 2: Resumen General (con campos plataforma) ─────────
     const resCols = ['DDHID','EQUIPO','PLATAFORMA','PROGRAMADO','EJECUTADO','ESTADO','PCT',

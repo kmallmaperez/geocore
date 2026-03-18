@@ -31,8 +31,13 @@ function normEst(v) {
   return 'Pendiente'
 }
 
-const COLORES = { Completado:'#10b981', 'En Proceso':'#f59e0b', Pendiente:'#64748b' }
-const ESTADOS = ['Completado', 'En Proceso', 'Pendiente']
+const COLORES = {
+  Completado:  '#4dd100',
+  'En Proceso':'#f76f00',
+  Plataforma:  '#0084ff',
+  Pendiente:   '#64748b',
+}
+const ESTADOS = ['Completado', 'En Proceso', 'Plataforma', 'Pendiente']
 
 export default function MapaPage() {
   const { user }        = useAuth()
@@ -57,7 +62,7 @@ export default function MapaPage() {
   const [tooltip,    setTooltip]    = useState(null)
   const [mouseCoord, setMouseCoord] = useState(null)
   // filtro CSS: ocultar estados por clase
-  const [ocultar,    setOcultar]    = useState({Completado:false,'En Proceso':false,Pendiente:false})
+  const [ocultar,    setOcultar]    = useState({Completado:false,'En Proceso':false,Plataforma:false,Pendiente:false})
 
   const containerRef = useRef(null)
   const imgRef       = useRef(null)
@@ -88,7 +93,8 @@ export default function MapaPage() {
       api.get('/mapa/config'),
       api.get('/tables/programa_general'),
       api.get('/tables/resumen/general'),
-    ]).then(([cfgRes, pgRes, resRes]) => {
+      api.get('/tables/resumen/plataforma').catch(() => ({ data: [] })),
+    ]).then(([cfgRes, pgRes, resRes, platRes]) => {
       const cfg = cfgRes.data || {}
       if (cfg.imagen_b64 && cfg.imagen_tipo) {
         setImgDataUrl(`data:${cfg.imagen_tipo};base64,${cfg.imagen_b64}`)
@@ -103,19 +109,41 @@ export default function MapaPage() {
       const idx = {}
       ;(resRes.data || []).forEach(r => { if (r.DDHID) idx[String(r.DDHID).trim()] = r })
 
+      // Índice plataforma_info por DDHID y por PLATAFORMA
+      const platByDDHID = {}, platByPlat = {}
+      ;(platRes.data || []).forEach(p => {
+        if (p.DDHID) platByDDHID[String(p.DDHID).trim()] = p
+        if (p.PLATAFORMA) platByPlat[String(p.PLATAFORMA).trim()] = p
+      })
+
+      // Lógica de prioridad de estado:
+      // 1. Si tiene perforación → Completado o En Proceso
+      // 2. Si tiene plataforma_info con status → Plataforma
+      // 3. Pendiente
+      function calcEstado(ddhid, platName, resRow) {
+        const est = normEst(resRow?.ESTADO)
+        if (est === 'Completado' || est === 'En Proceso') return est
+        // Tiene plataforma registrada?
+        const platInfo = platByDDHID[ddhid] || platByPlat[platName]
+        if (platInfo?.status_plataforma || platInfo?.fecha_entrega_plataforma) return 'Plataforma'
+        return 'Pendiente'
+      }
+
       const lista = (pgRes.data || []).map(p => {
         const ddhid = String(p.DDHID || '').trim()
+        const plat  = String(p.PLATAFORMA || '').trim()
         const r     = idx[ddhid] || {}
         return {
-          DDHID:        ddhid,
-          PLATAFORMA:   String(p.PLATAFORMA || '').trim(),
+          DDHID:        ddhid || plat,   // usar nombre plataforma si no hay DDHID
+          _isDDHID:     !!ddhid,
+          PLATAFORMA:   plat,
           EQUIPO:       r.EQUIPO  || p.EQUIPO || '',
           ESTE:         parseFloat(p.ESTE  ?? p.este)  || null,
           NORTE:        parseFloat(p.NORTE ?? p.norte) || null,
           PROGRAMADO:   r.PROGRAMADO  || parseFloat(p.LENGTH) || 0,
           EJECUTADO:    r.EJECUTADO   || 0,
           PCT:          r.PCT         || 0,
-          ESTADO:       normEst(r.ESTADO),
+          ESTADO:       calcEstado(ddhid, plat, r),
           FECHA_INICIO: r.FECHA_INICIO || '—',
           FECHA_FIN:    r.FECHA_FIN    || '—',
         }
@@ -400,7 +428,7 @@ export default function MapaPage() {
             const col   = COLORES[est]
             const total = sondajes.filter(s=>s.ESTADO===est).length
             const conC  = sondajes.filter(s=>s.ESTADO===est&&s.ESTE&&s.NORTE).length
-            const label = est==='Pendiente' ? `${conC}📍/${total}` : conC
+            const label = (est==='Pendiente'||est==='Plataforma') ? `${conC}/${total}` : conC
             const activo = !ocultar[est]
             return (
               <button key={est} onClick={()=>toggleEstado(est)}
@@ -469,15 +497,17 @@ export default function MapaPage() {
               const pos = posDisplay(s)
               if (!pos) return null
               const col = COLORES[s.ESTADO]
-              const r   = (s.ESTADO==='En Proceso' ? 9 : 7) / zoom
+              const r   = (s.ESTADO==='En Proceso' ? 9 : s.ESTADO==='Plataforma' ? 7 : 7) / zoom
               return (
                 <div key={s.DDHID} data-dot="1" data-ddhid={s.DDHID}
                   style={{position:'absolute',left:pos.x-r,top:pos.y-r,
-                    width:r*2,height:r*2,borderRadius:'50%',
+                    width:r*2,height:r*2,
+                    borderRadius: s.ESTADO==='Plataforma' ? '2px' : '50%',
                     background:col,border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
                     cursor:'pointer',zIndex:5,
                     display: ocultar[s.ESTADO] ? 'none' : 'block',
-                    boxShadow:s.ESTADO==='En Proceso'?`0 0 ${8/zoom}px ${col}`:`0 1px ${3/zoom}px rgba(0,0,0,.3)`,
+                    transform: s.ESTADO==='Plataforma' ? 'rotate(45deg)' : undefined,
+                    boxShadow:s.ESTADO==='En Proceso'?`0 0 ${8/zoom}px ${col}`:s.ESTADO==='Plataforma'?`0 0 ${6/zoom}px ${col}`:s.ESTADO==='Completado'?`0 0 ${6/zoom}px ${col}`:`0 1px ${3/zoom}px rgba(0,0,0,.3)`,
                   }}
                   onMouseEnter={()=>{
                     const {zoom:z,offset:o}={zoom:zoomRef.current,offset:offsetRef.current}
@@ -503,7 +533,7 @@ export default function MapaPage() {
                 borderRadius:10,padding:'10px 14px',fontSize:12,
                 zIndex:30,pointerEvents:'none',minWidth:190,maxWidth:220,
                 boxShadow:'0 4px 20px rgba(0,0,0,.5)'}}>
-                <div style={{fontWeight:700,fontSize:14,marginBottom:6}}>{s.DDHID}</div>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:6}}>{s._isDDHID ? s.DDHID : s.PLATAFORMA} {!s._isDDHID && <span style={{fontSize:10,color:COLORES.Plataforma,fontWeight:400}}>plataforma</span>}</div>
                 <div style={{display:'flex',flexDirection:'column',gap:3}}>
                   {s.EQUIPO     && <span style={{color:'var(--mut)'}}>🔧 {s.EQUIPO}</span>}
                   {s.PLATAFORMA && <span style={{color:'var(--mut)'}}>📍 {s.PLATAFORMA}</span>}

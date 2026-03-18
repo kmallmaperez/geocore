@@ -7,6 +7,15 @@ import ImportModal from '../components/ImportModal'
 import ReporteModal from '../components/ReporteModal'
 import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
+import PlataformaModal from '../components/PlataformaModal'
+
+const EQUIPOS_PG = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500']
+const EQUIPO_COLOR = {
+  'HYDX-5A-05': { bg:'rgba(59,130,246,.18)',  color:'#60a5fa' },
+  'HYDX-5A-06': { bg:'rgba(168,85,247,.18)',  color:'#c084fc' },
+  'HYDX-5A-07': { bg:'rgba(245,158,11,.18)',  color:'#fbbf24' },
+  'YN-1500':    { bg:'rgba(16,185,129,.18)',   color:'#34d399' },
+}
 
 const TIENE_REPORTE = new Set([
   'perforacion','recepcion','recuperacion','fotografia',
@@ -34,12 +43,25 @@ export default function TablePage() {
   const [filterD,   setFilterD]   = useState('')
   const [sortCol,   setSortCol]   = useState(null)
   const [sortDir,   setSortDir]   = useState('asc')
+  const [platMap,   setPlatMap]   = useState({})        // { DDHID: platData }
+  const [platModal, setPlatModal] = useState(null)      // DDHID abierto
 
   useEffect(() => {
     setRows([]); setLoading(true); setSearch(''); setFilterD(''); setSortCol(null)
     api.get(`/tables/${tkey}`).then(r => setRows(r.data)).finally(() => setLoading(false))
     // Sondajes disponibles: filtrados por profundidad alcanzada en esta tabla
     api.get(`/tables/ddhids/${tkey}`).then(r => setDdhids(r.data || []))
+    // Cargar datos de plataforma si estamos en programa_general
+    if (tkey === 'programa_general') {
+      api.get('/tables/resumen/plataforma').then(r => {
+        const map = {}
+        ;(r.data || []).forEach(p => {
+          if (p.DDHID) map[p.DDHID] = p
+          if (p.PLATAFORMA) map['PLAT:' + p.PLATAFORMA] = p
+        })
+        setPlatMap(map)
+      }).catch(() => {})
+    }
   }, [tkey])
 
   function toggleSort(col) {
@@ -167,6 +189,7 @@ export default function TablePage() {
                     {c}<SortIcon col={c} sortCol={sortCol} sortDir={sortDir} />
                   </th>
                 ))}
+                {tkey === 'programa_general' && <th style={{whiteSpace:'nowrap'}}>C. Plataforma</th>}
                 <th>Acc.</th>
               </tr>
             </thead>
@@ -178,15 +201,64 @@ export default function TablePage() {
               ) : sorted.map((row, idx) => (
                 <tr key={row.id}>
                   <td style={{ color:'var(--mut)', fontSize:11 }}>{idx+1}</td>
-                  {def.cols.map(c => (
-                    <td key={c}>
-                      {NUM_COLS.has(c) && row[c] !== undefined && row[c] !== null && row[c] !== ''
-                        ? parseFloat(row[c]).toLocaleString('es-PE')
-                        : DATE_COLS.has(c)
-                          ? fmtFecha(row[c])
-                          : row[c] ?? '—'}
+                  {def.cols.map(col => (
+                    <td key={col}>
+                      {tkey === 'programa_general' && col === 'EQUIPO'
+                        ? (
+                          <select
+                            value={row.EQUIPO || ''}
+                            onChange={async e => {
+                              const val = e.target.value
+                              try {
+                                await api.put('/tables/resumen/equipo', { DDHID: row.DDHID, EQUIPO: val })
+                                setRows(prev => prev.map(r => r.id === row.id ? {...r, EQUIPO: val} : r))
+                                show(`${row.DDHID} → ${val || 'Sin equipo'} ✓`)
+                              } catch(err) { show('Error al guardar equipo','err') }
+                            }}
+                            style={{
+                              background: EQUIPO_COLOR[row.EQUIPO]?.bg || 'var(--sur2)',
+                              color:      EQUIPO_COLOR[row.EQUIPO]?.color || 'var(--mut)',
+                              border: `1px solid ${EQUIPO_COLOR[row.EQUIPO]?.color || 'var(--brd)'}`,
+                              borderRadius:6, padding:'4px 8px',
+                              fontSize:12, fontWeight: row.EQUIPO ? 600 : 400,
+                              cursor:'pointer', outline:'none', minWidth:120,
+                            }}>
+                            <option value="">— Sin equipo —</option>
+                            {EQUIPOS_PG.map(e => <option key={e} value={e}>{e}</option>)}
+                          </select>
+                        )
+                        : NUM_COLS.has(col) && row[col] !== undefined && row[col] !== null && row[col] !== ''
+                          ? parseFloat(row[col]).toLocaleString('es-PE')
+                          : DATE_COLS.has(col)
+                            ? fmtFecha(row[col])
+                            : row[col] ?? '—'
+                      }
                     </td>
                   ))}
+                  {tkey === 'programa_general' && (() => {
+                    const platKey = row.DDHID && String(row.DDHID).trim() !== '' ? row.DDHID : ('PLAT:' + row.PLATAFORMA)
+                    const plat = platMap[platKey] || platMap[row.PLATAFORMA] || {}
+                    const tiene = !!(plat.status_plataforma || plat.fecha_entrega_plataforma || plat.entregado_por)
+                    return (
+                      <td style={{textAlign:'center'}}>
+                        <button
+                          onClick={() => setPlatModal(platKey)}
+                          title={tiene ? 'Ver/editar plataforma' : 'Registrar plataforma'}
+                          style={{
+                            border: 'none', borderRadius: 6, cursor: 'pointer',
+                            padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                            background: tiene ? '#10b98122' : 'var(--sur2)',
+                            color: tiene ? '#10b981' : 'var(--mut)',
+                            transition: 'all .15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = '.75'}
+                          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                        >
+                          {tiene ? '✅ Ver' : '○ Registrar'}
+                        </button>
+                      </td>
+                    )
+                  })()}
                   <td>
                     <div style={{ display:'flex', gap:4 }}>
                       {tieneReporte && (
@@ -217,6 +289,16 @@ export default function TablePage() {
       )}
       {reporte && (
         <ReporteModal tkey={tkey} row={reporte} onClose={() => setReporte(null)} />
+      )}
+      {platModal && (
+        <PlataformaModal
+          ddhid={platModal}
+          initial={platMap[platModal] || {}}
+          onClose={() => setPlatModal(null)}
+          onSaved={(data) => {
+            setPlatMap(prev => ({...prev, [platModal]: {...(prev[platModal]||{}), ...data, _key: platModal}}))
+          }}
+        />
       )}
     </div>
   )

@@ -130,7 +130,10 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
     let platRows = []
     try { const pr = await db.query('SELECT * FROM plataforma_info'); platRows = pr.rows } catch(_){}
     const platMap = {}
-    platRows.forEach(r => { platMap[r.DDHID] = r })
+    platRows.forEach(r => {
+      if (r.DDHID) platMap[r.DDHID] = r
+      if (r.PLATAFORMA && !r.DDHID) platMap['__PLAT__' + String(r.PLATAFORMA).trim()] = r
+    })
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
 
@@ -185,12 +188,12 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
         EJECUTADO:    parseFloat(ej.toFixed(1)), ESTADO: overrides[p.DDHID] || estadoCalc,
         FECHA_INICIO: fechaInicio || '—',
         FECHA_FIN:    fechaFin    || '—',
-        FECHA_ENTREGA_PLAT:  platMap[p.DDHID]?.fecha_entrega_plataforma    || null,
-        FECHA_PREINICIO:     platMap[p.DDHID]?.fecha_preinicio_perforacion  || null,
-        FECHA_CIERRE_PLAT:   platMap[p.DDHID]?.fecha_cierre_plataforma      || null,
-        STATUS_PLATAFORMA:   platMap[p.DDHID]?.status_plataforma            || '',
-        FORMATO_CHECKLIST:   platMap[p.DDHID]?.formato_checklist            || '',
-        ENTREGADO_POR:       platMap[p.DDHID]?.entregado_por                || '',
+        FECHA_ENTREGA_PLAT:  (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.fecha_entrega_plataforma    || null,
+        FECHA_PREINICIO:     (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.fecha_preinicio_perforacion  || null,
+        FECHA_CIERRE_PLAT:   (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.fecha_cierre_plataforma      || null,
+        STATUS_PLATAFORMA:   (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.status_plataforma            || '',
+        FORMATO_CHECKLIST:   (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.formato_checklist            || '',
+        ENTREGADO_POR:       (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.entregado_por                || '',
         PCT: pct, _estadoManual: !!overrides[p.DDHID],
         ESTE:  parseFloat(p.ESTE  ?? p.este)  || null,
         NORTE: parseFloat(p.NORTE ?? p.norte) || null,
@@ -506,9 +509,10 @@ router.put('/resumen/plataforma', authMiddleware, async (req, res) => {
                    'status_plataforma','formato_checklist','entregado_por']
   if (!VALIDOS.includes(campo)) return res.status(400).json({ error: 'Campo no válido' })
   try {
+    // Migración completa: manejar tabla vieja (DDHID TEXT PRIMARY KEY) o nueva (id SERIAL)
     await db.query(`
       CREATE TABLE IF NOT EXISTS plataforma_info (
-        "DDHID"                     TEXT PRIMARY KEY,
+        "DDHID" TEXT PRIMARY KEY,
         fecha_entrega_plataforma    DATE,
         fecha_preinicio_perforacion DATE,
         fecha_cierre_plataforma     DATE,
@@ -518,12 +522,57 @@ router.put('/resumen/plataforma', authMiddleware, async (req, res) => {
         updated_at                  TIMESTAMP DEFAULT NOW()
       )
     `)
+    // Agregar columnas nuevas si no existen
+    await db.query(`ALTER TABLE plataforma_info ADD COLUMN IF NOT EXISTS "PLATAFORMA" TEXT`).catch(()=>{})
+    await db.query(`ALTER TABLE plataforma_info ADD COLUMN IF NOT EXISTS id SERIAL`).catch(()=>{})
+    // Permitir DDHID nulo (para plataformas sin sondaje)
+    await db.query(`ALTER TABLE plataforma_info ALTER COLUMN "DDHID" DROP NOT NULL`).catch(()=>{})
+    // Quitar PRIMARY KEY de DDHID si existe (para permitir nulos)
+    await db.query(`ALTER TABLE plataforma_info DROP CONSTRAINT IF EXISTS plataforma_info_pkey`).catch(()=>{})
+
     const val = (valor === '' || valor === null) ? null : valor
-    await db.query(
-      `INSERT INTO plataforma_info ("DDHID", "${campo}", updated_at) VALUES ($1,$2,NOW())
-       ON CONFLICT ("DDHID") DO UPDATE SET "${campo}"=$2, updated_at=NOW()`,
-      [DDHID, val]
-    )
+
+    // DDHID puede ser 'PLAT:NombrePlataforma' cuando no hay sondaje asignado
+    let realDDHID = DDHID, realPLAT = null
+    if (String(DDHID).startsWith('PLAT:')) {
+      realPLAT  = String(DDHID).slice(5)
+      realDDHID = null
+    }
+
+    if (realDDHID) {
+      // Con DDHID: buscar si existe y hacer UPDATE o INSERT
+      const existeDDHID = await db.query(
+        `SELECT id FROM plataforma_info WHERE "DDHID"=$1`, [realDDHID]
+      )
+      if (existeDDHID.rows.length > 0) {
+        await db.query(
+          `UPDATE plataforma_info SET "${campo}"=$1, updated_at=NOW() WHERE "DDHID"=$2`,
+          [val, realDDHID]
+        )
+      } else {
+        await db.query(
+          `INSERT INTO plataforma_info ("DDHID", "${campo}", updated_at) VALUES ($1,$2,NOW())`,
+          [realDDHID, val]
+        )
+      }
+    } else {
+      // Sin DDHID: upsert por PLATAFORMA
+      const existing = await db.query(
+        `SELECT id FROM plataforma_info WHERE "PLATAFORMA"=$1 AND "DDHID" IS NULL`,
+        [realPLAT]
+      )
+      if (existing.rows.length > 0) {
+        await db.query(
+          `UPDATE plataforma_info SET "${campo}"=$1, updated_at=NOW() WHERE "PLATAFORMA"=$2 AND "DDHID" IS NULL`,
+          [val, realPLAT]
+        )
+      } else {
+        await db.query(
+          `INSERT INTO plataforma_info ("PLATAFORMA", "${campo}", updated_at) VALUES ($1,$2,NOW())`,
+          [realPLAT, val]
+        )
+      }
+    }
     res.json({ success:true })
   } catch(err) { res.status(500).json({ error: err.message }) }
 })
@@ -533,7 +582,9 @@ router.get('/resumen/plataforma', authMiddleware, async (req, res) => {
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS plataforma_info (
-        "DDHID"                     TEXT PRIMARY KEY,
+        id                          SERIAL PRIMARY KEY,
+        "DDHID"                     TEXT,
+        "PLATAFORMA"                TEXT,
         fecha_entrega_plataforma    DATE,
         fecha_preinicio_perforacion DATE,
         fecha_cierre_plataforma     DATE,
@@ -543,7 +594,7 @@ router.get('/resumen/plataforma', authMiddleware, async (req, res) => {
         updated_at                  TIMESTAMP DEFAULT NOW()
       )
     `)
-    const r = await db.query('SELECT * FROM plataforma_info')
+    const r = await db.query('SELECT * FROM plataforma_info ORDER BY id')
     res.json(r.rows)
   } catch(err) { res.status(500).json({ error: err.message }) }
 })

@@ -5,8 +5,8 @@
 export const DEFS = {
   programa_general: {
     label: 'Programa General',
-    cols:     ['PLATAFORMA','DDHID','ESTE','NORTE','ELEV','LENGTH'],
-    formCols: ['PLATAFORMA','DDHID','ESTE','NORTE','ELEV','LENGTH'], // todas visibles
+    cols:     ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
+    formCols: ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
   },
   perforacion: {
     label: 'Perforación',
@@ -279,7 +279,7 @@ export function fmtFecha(v) {
   const s = String(v).slice(0, 10)           // toma solo YYYY-MM-DD
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return v  // no es fecha ISO, devuelve original
   const [y, m, d] = s.split('-')
-  return `${d}/${m}/${y}`
+  return `${y}/${m}/${d}`
 }
 
 // Columnas que contienen fechas (para renderizado en tabla)

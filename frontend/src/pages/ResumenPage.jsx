@@ -118,34 +118,9 @@ function EstadoCell({ row, canEdit, onUpdateEstado }) {
   )
 }
 
-// ── Celda EQUIPO ───────────────────────────────────────────────────
-const EQUIPOS = ['HYDX-5A-05','HYDX-5A-07','YN-1500']
-function EquipoCell({ row, canEdit, onUpdateEquipo }) {
-  const [editing, setEditing] = useState(false)
-  const [val, setVal] = useState(row.EQUIPO||'')
-  async function save() {
-    if (val===(row.EQUIPO||'')) { setEditing(false); return }
-    await onUpdateEquipo(row.DDHID, val); setEditing(false)
-  }
-  if (!canEdit) return <span>{row.EQUIPO||<span style={{color:'var(--mut)',fontSize:11}}>—</span>}</span>
-  if (editing) return (
-    <div style={{display:'flex',gap:4,alignItems:'center'}}>
-      <select value={val} onChange={e=>setVal(e.target.value)} autoFocus
-        style={{background:'var(--bg)',border:'1px solid var(--acc)',borderRadius:6,padding:'4px 8px',color:'var(--txt)',fontSize:12}}>
-        <option value="">— Sin equipo —</option>
-        {EQUIPOS.map(e=><option key={e} value={e}>{e}</option>)}
-      </select>
-      <button className="btn btn-grn btn-sm" onClick={save}>✓</button>
-      <button className="btn btn-out btn-sm" onClick={()=>{setVal(row.EQUIPO||'');setEditing(false)}}>✕</button>
-    </div>
-  )
-  return (
-    <div style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}
-      onClick={()=>{setVal(row.EQUIPO||'');setEditing(true)}}>
-      <span>{row.EQUIPO||<span style={{color:'var(--mut)',fontSize:11}}>Sin equipo</span>}</span>
-      <span style={{fontSize:10,color:'var(--mut)'}}>✎</span>
-    </div>
-  )
+// ── Celda EQUIPO — solo lectura (se edita desde Programa General) ──
+function EquipoCell({ row }) {
+  return <span style={{fontSize:12}}>{row.EQUIPO||<span style={{color:'var(--mut)',fontSize:11}}>—</span>}</span>
 }
 
 const COLS = [
@@ -178,7 +153,11 @@ export default function ResumenPage() {
   function fetchResumen() {
     setLoading(true)
     api.get('/tables/resumen/general')
-      .then(r => setResumen(r.data.filter(x => x.DDHID && String(x.DDHID).trim() !== '')))
+      .then(r => setResumen((r.data || []).filter(x => {
+        const tieneDDHID = x.DDHID && String(x.DDHID).trim() !== ''
+        const tienePlat  = x.STATUS_PLATAFORMA || x.FECHA_ENTREGA_PLAT || x.ENTREGADO_POR
+        return tieneDDHID || tienePlat
+      })))
       .finally(() => setLoading(false))
   }
   useEffect(() => { fetchResumen() }, [])
@@ -206,13 +185,7 @@ export default function ResumenPage() {
     } catch(err) { show(err.response?.data?.error||'Error','err') }
   }
 
-  async function updateEquipo(ddhid, equipo) {
-    try {
-      await api.put('/tables/resumen/equipo', { DDHID:ddhid, EQUIPO:equipo })
-      setResumen(prev => prev.map(r => r.DDHID===ddhid ? {...r,EQUIPO:equipo} : r))
-      show(`${ddhid} → Equipo: ${equipo||'(vacío)'} ✓`)
-    } catch(err) { show(err.response?.data?.error||'Error','err') }
-  }
+  // EQUIPO se edita desde Programa General
 
   async function updatePlataforma(ddhid, campo, valor) {
     try {
@@ -273,7 +246,7 @@ export default function ResumenPage() {
 
       {canEdit && (
         <div className="alert a-warn" style={{marginBottom:14}}>
-          ✎ Clic sobre cualquier celda en azul para editarla.
+          ✎ Clic sobre cualquier celda en azul para editarla. El equipo se asigna desde Programa General.
           Los estados con <span style={{color:'var(--acc)'}}>★</span> son manuales — usa <strong>↺</strong> para revertir.
         </div>
       )}
@@ -305,7 +278,7 @@ export default function ResumenPage() {
                 <tr key={r.DDHID}>
                   <td style={{color:'var(--mut)',fontSize:11}}>{i+1}</td>
                   <td><strong>{r.DDHID}</strong></td>
-                  <td><EquipoCell row={r} canEdit={canEdit} onUpdateEquipo={updateEquipo}/></td>
+                  <td><EquipoCell row={r}/></td>
                   <td>{r.PLATAFORMA}</td>
                   <td>{r.PROGRAMADO}m</td>
                   <td>{r.EJECUTADO}m</td>
@@ -320,42 +293,12 @@ export default function ResumenPage() {
                   </td>
 
                   {/* ── Campos plataforma ── */}
-                  <td>
-                    <EditCell value={fmt(r.FECHA_ENTREGA_PLAT)} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'fecha_entrega_plataforma',v)}>
-                      <DateInput/>
-                    </EditCell>
-                  </td>
-                  <td>
-                    <EditCell value={fmt(r.FECHA_PREINICIO)} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'fecha_preinicio_perforacion',v)}>
-                      <DateInput/>
-                    </EditCell>
-                  </td>
-                  <td>
-                    <EditCell value={fmt(r.FECHA_CIERRE_PLAT)} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'fecha_cierre_plataforma',v)}>
-                      <DateInput/>
-                    </EditCell>
-                  </td>
-                  <td>
-                    <EditCell value={r.STATUS_PLATAFORMA} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'status_plataforma',v)}>
-                      <SelectInput options={['Entregado','Construida']}/>
-                    </EditCell>
-                  </td>
-                  <td>
-                    <EditCell value={r.FORMATO_CHECKLIST} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'formato_checklist',v)}>
-                      <SelectInput options={['Ok','Por Regularizar']}/>
-                    </EditCell>
-                  </td>
-                  <td>
-                    <EditCell value={r.ENTREGADO_POR} canEdit={canEdit}
-                      onSave={v=>updatePlataforma(r.DDHID,'entregado_por',v)}>
-                      <EntregadoPorInput/>
-                    </EditCell>
-                  </td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{fmt(r.FECHA_ENTREGA_PLAT)||<span style={{color:'var(--mut)'}}>—</span>}</td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{fmt(r.FECHA_PREINICIO)||<span style={{color:'var(--mut)'}}>—</span>}</td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{fmt(r.FECHA_CIERRE_PLAT)||<span style={{color:'var(--mut)'}}>—</span>}</td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{r.STATUS_PLATAFORMA||<span style={{color:'var(--mut)'}}>—</span>}</td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{r.FORMATO_CHECKLIST||<span style={{color:'var(--mut)'}}>—</span>}</td>
+                  <td style={{fontSize:12,color:'var(--txt)'}}>{r.ENTREGADO_POR||<span style={{color:'var(--mut)'}}>—</span>}</td>
 
                   {canEdit && (
                     <td>{r._estadoManual && (

@@ -76,6 +76,88 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 })
 
+// Catálogos de códigos para resolver nombres en importación
+const LITO_MAP = {
+  0:'Cobertura',1:'Diorita/Andesita Porfirita',2:'Granodiorita',3:'Pórfido Feldespático',
+  4:'Pórfido Cuarcífero',5:'Pórfido Dacítico',6:'Pórfido Yantac',7:'Endoskarn',
+  10:'Hornfels',11:'Skarn',12:'Skarn de Magnetita',13:'Basalto Montero',
+  14:'Sedimentos Calcareos',15:'Shale (Lutitas)',16:'Volcánicos Catalina',
+  17:'Anhidrita / Yeso',18:'Sandstone (Areniscas)',19:'Brecha en Igneos',
+  20:'Brecha en sedimentarios',25:'Relleno',102:'Sin Recuperación',
+}
+const ALTER_MAP = {
+  0:'Cobertura',2:'Biotita y/o Feldespato potasico (Potasica)',3:'Cloritica (Propilitica)',
+  4:'Sericitica (Filica)',5:'Argílica',6:'Silicificación',
+  9:'Skarn de Tremolita-Actinolita, Clorita',10:'Skarn de Serpentina-Magnetita',
+  11:'Skarn de Diopsido-Granate',12:'Hornfels Verde - Diopsido en Hornfels',
+  15:'Sedimentos Calcareos - Marmol',16:'Anhidrita / Yeso',17:'Shale (Lutitas)',
+  18:'Skarn de Magnetita',19:'Sandstone (Areniscas)',25:'Relleno',102:'Sin Recuperación',
+}
+
+// POST /api/quicklog/import — importar desde CSV/Excel
+router.post('/import', authMiddleware, async (req, res) => {
+  const u = req.user
+  if (u.role === 'USER') {
+    const tables = Array.isArray(u.tables) ? u.tables : []
+    if (!tables.includes('all') && !tables.includes('quicklog'))
+      return res.status(403).json({ error: 'Sin permiso' })
+  }
+  const { rows, mode } = req.body  // mode: 'skip' | 'overwrite'
+  if (!Array.isArray(rows) || rows.length === 0)
+    return res.status(400).json({ error: 'Sin datos' })
+
+  let inserted = 0, updated = 0, skipped = 0, errors = []
+
+  try {
+    for (const r of rows) {
+      const ddhid    = String(r.DDHID || '').trim()
+      const from_m   = parseFloat(r.FROM ?? r.from_m)
+      const to_m     = parseFloat(r.TO   ?? r.to_m)
+      const lito_cod = r.LITO_COD != null && r.LITO_COD !== '' ? parseInt(r.LITO_COD) : null
+      const alter_cod  = r.ALTER_COD != null && r.ALTER_COD !== '' ? parseInt(r.ALTER_COD) : null
+      // Resolver nombres desde códigos usando los catálogos
+      const lito_desc  = lito_cod  != null ? (LITO_MAP[lito_cod]  || '') : null
+      const alter_desc = alter_cod != null ? (ALTER_MAP[alter_cod] || '') : null
+      const extra = String(r.EXTRA || r.extra || '').trim() || null
+      const obs   = String(r.OBS   || r.obs   || '').trim() || null
+
+      if (!ddhid || isNaN(from_m) || isNaN(to_m)) {
+        errors.push(`Fila inválida: DDHID=${r.DDHID} FROM=${r.FROM} TO=${r.TO}`)
+        continue
+      }
+
+      // Buscar si ya existe ese tramo
+      const existing = await db.query(
+        `SELECT id FROM quick_log WHERE "DDHID"=$1 AND from_m=$2 AND to_m=$3`,
+        [ddhid, from_m, to_m]
+      )
+
+      if (existing.rows.length > 0) {
+        if (mode === 'overwrite') {
+          await db.query(
+            `UPDATE quick_log SET lito_cod=$1, lito_desc=$2, alter_cod=$3, alter_desc=$4,
+             extra=$5, obs=$6 WHERE "DDHID"=$7 AND from_m=$8 AND to_m=$9`,
+            [lito_cod, lito_desc, alter_cod, alter_desc, extra, obs, ddhid, from_m, to_m]
+          )
+          updated++
+        } else {
+          skipped++
+        }
+      } else {
+        await db.query(
+          `INSERT INTO quick_log ("DDHID", from_m, to_m, lito_cod, lito_desc, alter_cod, alter_desc, extra, obs)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [ddhid, from_m, to_m, lito_cod, lito_desc, alter_cod, alter_desc, extra, obs]
+        )
+        inserted++
+      }
+    }
+    res.json({ ok: true, inserted, updated, skipped, errors })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // DELETE /api/quicklog/:id — eliminar registro individual (para deduplicación)
 router.delete('/:id', authMiddleware, async (req, res) => {
   if (!['ADMIN','SUPERVISOR'].includes(req.user.role))
