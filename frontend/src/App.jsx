@@ -8,7 +8,8 @@ import TablePage from './pages/TablePage'
 import ResumenPage from './pages/ResumenPage'
 import UsersPage from './pages/UsersPage'
 import ExportPage from './pages/ExportPage'
-import MapaPage      from './pages/MapaPage'
+import MapaPage        from './pages/MapaPage'
+import DuplicadosPage  from './pages/DuplicadosPage'
 import QuickLogPage  from './pages/QuickLogPage'
 
 function PrivateLayout({ children, roles }) {
@@ -58,6 +59,7 @@ function AppRoutes() {
       <Route path="/exportar"    element={<PrivateLayout><ExportPage /></PrivateLayout>} />
       <Route path="/mapa"         element={<PrivateLayout><MapaPage /></PrivateLayout>} />
       <Route path="/quicklog"      element={<PrivateLayout><QuickLogPage /></PrivateLayout>} />
+      <Route path="/duplicados"    element={<PrivateLayout roles={['ADMIN']}><DuplicadosPage /></PrivateLayout>} />
       <Route path="*"            element={<Navigate to="/" replace />} />
     </Routes>
   )

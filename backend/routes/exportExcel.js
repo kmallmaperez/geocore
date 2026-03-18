@@ -10,6 +10,7 @@ const NUM_COLS = new Set([
   'From_Noche','To_Noche','Acumulado','Metros','CAJAS','MUESTRAS','MAQUINAS',
   'Minutos','Horas','TOTAL','PLT','UCS','SG','N_Foto','Qty_Mina','Qty_Lab',
   'Muestras_Dens','Tiempo_dias','Envio_N','Total_muestras','PROGRAMADO','EJECUTADO','PCT',
+  'RECEPCION','RECUPERADO','FOTOGRAFIADO','GEOTECNICO','GEOLOGICO',
 ])
 
 const DATE_COLS = new Set([
@@ -32,7 +33,7 @@ const TABLES = {
 }
 
 const SHEET_NAMES = {
-  resumen_general: 'Resumen General', programa_general: 'Programa General',
+  resumen_dashboard: 'Resumen Dashboard', resumen_general: 'Resumen de Sondajes y Plataforma', programa_general: 'Programa General',
   perforacion: 'Perforación',         recepcion: 'Recepción',
   recuperacion: 'Recuperación',       fotografia: 'Fotografía',
   l_geotecnico: 'L_Geotécnico',       l_geologico: 'L_Geológico',
@@ -42,7 +43,7 @@ const SHEET_NAMES = {
 }
 
 const HEADER_COLORS = {
-  resumen_general: '1E3A5F',  programa_general: '1E3A5F',
+  resumen_dashboard: '0F4C81', resumen_general: '1E3A5F',  programa_general: '1E3A5F',
   perforacion: '10B981',      recepcion: '3B82F6',
   recuperacion: 'A855F7',     fotografia: 'F59E0B',
   l_geotecnico: 'EF4444',     l_geologico: '14B8A6',
@@ -51,7 +52,7 @@ const HEADER_COLORS = {
   tormentas: '6366F1',
 }
 
-const DARK_BG = new Set(['1E3A5F','10B981','3B82F6','A855F7','EF4444','14B8A6','8B5CF6','F97316','06B6D4','6366F1'])
+const DARK_BG = new Set(['0F4C81','1E3A5F','10B981','3B82F6','A855F7','EF4444','14B8A6','8B5CF6','F97316','06B6D4','6366F1'])
 
 // Convierte cualquier valor de fecha a string DD/MM/YYYY
 function fmtDate(val) {
@@ -152,26 +153,83 @@ router.get('/download', authMiddleware, async (req, res) => {
     wb.creator = 'GeoCore'
     wb.created = new Date()
 
-    // 1. Resumen General
-    const pg      = await db.query('SELECT * FROM programa_general')
-    const perfSum = await db.query('SELECT "DDHID", SUM("Total_Dia") as ejecutado FROM perforacion GROUP BY "DDHID"')
-    const perfMap = {}
-    perfSum.rows.forEach(r => { perfMap[r.DDHID] = parseFloat(r.ejecutado) || 0 })
-    const resumenRows = pg.rows.map(p => {
-      const ej    = perfMap[p.DDHID] || 0
-      const pct   = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
-      const estado = pct >= 100 ? 'Completado' : ej > 0 ? 'En Proceso' : 'Pendiente'
-      return { DDHID: p.DDHID, EQUIPO: p.EQUIPO||'', PLATAFORMA: p.PLATAFORMA, PROGRAMADO: parseFloat(p.LENGTH||0), EJECUTADO: parseFloat(ej.toFixed(1)), ESTADO: estado, PCT: pct }
-    })
-    await buildSheet(ExcelJS, wb, 'resumen_general',
-      ['DDHID','EQUIPO','PLATAFORMA','PROGRAMADO','EJECUTADO','ESTADO','PCT'], resumenRows)
+    // ── Datos base ──────────────────────────────────────────────
+    const pg      = await db.query('SELECT * FROM programa_general ORDER BY id')
+    const perfSum = await db.query('SELECT "DDHID", SUM("Total_Dia") AS ejecutado FROM perforacion GROUP BY "DDHID"')
+    const recepQ  = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("TO"::text),'')::numeric) AS max_to FROM recepcion   GROUP BY "DDHID"`)
+    const recupQ  = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM recuperacion GROUP BY "DDHID"`)
+    const fotoQ   = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM fotografia   GROUP BY "DDHID"`)
+    const geotQ   = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM l_geotecnico GROUP BY "DDHID"`)
+    const geolQ   = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM l_geologico  GROUP BY "DDHID"`)
+    const ovQ     = await db.query('SELECT ddhid, estado FROM estado_overrides')
 
-    // 2. Programa General
-    const pgRows = await db.query('SELECT * FROM programa_general ORDER BY id')
+    // Plataforma info
+    let platRows = []
+    try { const pr = await db.query('SELECT * FROM plataforma_info'); platRows = pr.rows } catch(_) {}
+
+    const perfMap  = {}; perfSum.rows.forEach(r => { perfMap[r.DDHID]  = parseFloat(r.ejecutado)||0 })
+    const recepMap = {}; recepQ.rows.forEach(r  => { recepMap[r.DDHID] = parseFloat(r.max_to)||0 })
+    const recupMap = {}; recupQ.rows.forEach(r  => { recupMap[r.DDHID] = parseFloat(r.max_to)||0 })
+    const fotoMap  = {}; fotoQ.rows.forEach(r   => { fotoMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const geotMap  = {}; geotQ.rows.forEach(r   => { geotMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const geolMap  = {}; geolQ.rows.forEach(r   => { geolMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const ovMap    = {}; ovQ.rows.forEach(r     => { ovMap[r.ddhid]    = r.estado })
+    const platMap  = {}; platRows.forEach(r     => { platMap[r.DDHID]  = r })
+
+    function buildResumenRow(p) {
+      const ej     = perfMap[p.DDHID] || 0
+      const pct    = p.LENGTH > 0 ? Math.round(ej / p.LENGTH * 100) : 0
+      const eCalc  = pct >= 100 ? 'Completado' : ej > 0 ? 'En Proceso' : 'Pendiente'
+      const estado = ovMap[p.DDHID] || eCalc
+      const plat   = platMap[p.DDHID] || {}
+      return {
+        DDHID:        p.DDHID,
+        EQUIPO:       p.EQUIPO || '',
+        PLATAFORMA:   p.PLATAFORMA || '',
+        PROGRAMADO:   parseFloat(p.LENGTH || 0),
+        EJECUTADO:    parseFloat(ej.toFixed(1)),
+        RECEPCION:    recepMap[p.DDHID] || 0,
+        RECUPERADO:   recupMap[p.DDHID] || 0,
+        FOTOGRAFIADO: fotoMap[p.DDHID]  || 0,
+        GEOTECNICO:   geotMap[p.DDHID]  || 0,
+        GEOLOGICO:    geolMap[p.DDHID]  || 0,
+        ESTADO:       estado,
+        PCT:          pct,
+        FECHA_ENTREGA_PLAT:  plat.fecha_entrega_plataforma    || '',
+        FECHA_PREINICIO:     plat.fecha_preinicio_perforacion  || '',
+        FECHA_CIERRE_PLAT:   plat.fecha_cierre_plataforma      || '',
+        STATUS_PLATAFORMA:   plat.status_plataforma            || '',
+        FORMATO_CHECKLIST:   plat.formato_checklist            || '',
+        ENTREGADO_POR:       plat.entregado_por                || '',
+      }
+    }
+
+    const allResumen = pg.rows
+      .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
+      .map(buildResumenRow)
+
+    // ── HOJA 1: Resumen Dashboard (al inicio) ───────────────────
+    const dashCols = ['DDHID','EQUIPO','PLATAFORMA','ESTADO','PROGRAMADO','EJECUTADO',
+                      'RECEPCION','RECUPERADO','FOTOGRAFIADO','GEOTECNICO','GEOLOGICO','PCT']
+    await buildSheet(ExcelJS, wb, 'resumen_dashboard', dashCols, allResumen)
+
+    // ── HOJA 2: Resumen General (con campos plataforma) ─────────
+    const resCols = ['DDHID','EQUIPO','PLATAFORMA','PROGRAMADO','EJECUTADO','ESTADO','PCT',
+                     'FECHA_ENTREGA_PLAT','FECHA_PREINICIO','FECHA_CIERRE_PLAT',
+                     'STATUS_PLATAFORMA','FORMATO_CHECKLIST','ENTREGADO_POR']
+    // Agregar fechas al DATE_COLS para formato correcto
+    const extraDateCols = new Set(['FECHA_ENTREGA_PLAT','FECHA_PREINICIO','FECHA_CIERRE_PLAT'])
+    const origDateCols = [...DATE_COLS]
+    extraDateCols.forEach(c => DATE_COLS.add(c))
+    await buildSheet(ExcelJS, wb, 'resumen_general', resCols, allResumen)
+    // Restaurar DATE_COLS
+    DATE_COLS.clear(); origDateCols.forEach(c => DATE_COLS.add(c))
+
+    // ── HOJA 3: Programa General ────────────────────────────────
     await buildSheet(ExcelJS, wb, 'programa_general',
-      ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'], pgRows.rows)
+      ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'], pg.rows)
 
-    // 3. Resto de tablas
+    // ── HOJAS 4+: Resto de tablas ───────────────────────────────
     for (const [tkey, cols] of Object.entries(TABLES)) {
       const r = await db.query(`SELECT * FROM ${tkey} ORDER BY id`)
       await buildSheet(ExcelJS, wb, tkey, cols, r.rows)

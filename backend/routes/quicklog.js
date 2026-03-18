@@ -76,4 +76,15 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 })
 
+// DELETE /api/quicklog/:id — eliminar registro individual (para deduplicación)
+router.delete('/:id', authMiddleware, async (req, res) => {
+  if (!['ADMIN','SUPERVISOR'].includes(req.user.role))
+    return res.status(403).json({ error: 'Sin permisos' })
+  try {
+    const r = await db.query('DELETE FROM quick_log WHERE id=$1 RETURNING id', [parseInt(req.params.id)])
+    if (!r.rows[0]) return res.status(404).json({ error: 'No encontrado' })
+    res.json({ success: true })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 module.exports = router

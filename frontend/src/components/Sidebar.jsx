@@ -24,7 +24,8 @@ const NAV = [
   { id: '/tabla/batch',            ico: '🧾', lbl: 'Batch' },
   { id: '/tabla/tormentas',        ico: '⛈',  lbl: 'Tormentas' },
   { section: 'Sistema' },
-  { id: '/usuarios', ico: '👥', lbl: 'Usuarios',  roles: ['ADMIN'] },
+  { id: '/usuarios',   ico: '👥', lbl: 'Usuarios',   roles: ['ADMIN'] },
+  { id: '/duplicados', ico: '🔍', lbl: 'Duplicados',  roles: ['ADMIN'] },
   { id: '/exportar', ico: '⬇️', lbl: 'Exportar' },
 ]
 

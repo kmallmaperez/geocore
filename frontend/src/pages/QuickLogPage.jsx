@@ -148,17 +148,20 @@ export default function QuickLogPage() {
   }, [ddhid])
 
   // ── Autoguardado con debounce ───────────────────────────────────
+  const isSaving = useRef(false)
   const autoSave = useCallback((currentDdhid, currentRows) => {
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
       if (!currentDdhid || !canEdit) return
+      if (isSaving.current) return  // evitar doble guardado simultáneo
       const data = currentRows.filter(r => r.lito_desc !== '')
+      isSaving.current = true
       setSaving(true)
       try {
         await api.post('/quicklog', { ddhid: currentDdhid, rows: data })
       } catch(e) { show('Error al guardar','err') }
-      finally { setSaving(false) }
-    }, 1200)
+      finally { isSaving.current = false; setSaving(false) }
+    }, 1500)
   }, [])
 
   // ── Validación from/to ──────────────────────────────────────────

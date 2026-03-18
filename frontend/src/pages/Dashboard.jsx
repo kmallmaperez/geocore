@@ -408,6 +408,25 @@ export default function Dashboard() {
     a.click()
   }
 
+  // ── Descarga CSV tabla resumen por sondaje ──────────────────────
+  function downloadResumenCSV() {
+    const bom = '\uFEFF'
+    const quote = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const cols = ['#','DDHID','ESTADO','PROG.(m)','PERF.(m)','RECEP.(m)','RECUP.(m)','FOTO.(m)','GEOTÉC.(m)','GEOLÓG.(m)','%']
+    const lines = [
+      cols.join(','),
+      ...porSondaje.map((r,i) => [
+        i+1, r.DDHID, r.ESTADO, r.PROGRAMADO,
+        r.PERFORADO, r.RECEPCION, r.RECUPERADO,
+        r.FOTOGRAFIADO, r.GEOTECNICO, r.GEOLOGICO, r.PCT+'%'
+      ].map(quote).join(','))
+    ]
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([bom+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'}))
+    a.download = `Resumen_Sondajes_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
+
   const CARDS = [
     { lbl:'Perforado',    val:stats.perforado,    color:C.perf.bd,  icon:'⛏', ult:ultFecha.perf  },
     { lbl:'Recuperado',   val:stats.recuperado,   color:C.recup.bd, icon:'🧪', ult:ultFecha.recup },
@@ -482,7 +501,7 @@ export default function Dashboard() {
 
       {/* Gráfico metros por sondaje */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">📊 Avance por Sondaje</div>
+        <div className="ch-title">📊 Avance por Sondaje — ordenado por brecha Perf vs Geológico</div>
         <div ref={sondajWrap} style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
           <div style={{ width:sondajCanvasW, height:280 }}>
             <canvas ref={crSondaj} width={sondajCanvasW} height={280} />
@@ -493,7 +512,7 @@ export default function Dashboard() {
       {/* Tabla resumen */}
       {porSondaje.length > 0 && (
         <div className="t-wrap">
-          <div className="t-top"><span className="t-title">Resumen completo por sondaje</span></div>
+          <div className="t-top"><span className="t-title">Resumen completo por sondaje</span><button className="btn btn-grn btn-sm" onClick={downloadResumenCSV}>⬇ CSV</button></div>
           <div className="ox">
             <table className="tbl">
               <thead>

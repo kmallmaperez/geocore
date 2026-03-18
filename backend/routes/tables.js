@@ -127,6 +127,10 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
     const prog = await db.query('SELECT * FROM programa_general ORDER BY id')
     const perf = await db.query('SELECT * FROM perforacion ORDER BY id')
     const ov   = await db.query('SELECT * FROM estado_overrides')
+    let platRows = []
+    try { const pr = await db.query('SELECT * FROM plataforma_info'); platRows = pr.rows } catch(_){}
+    const platMap = {}
+    platRows.forEach(r => { platMap[r.DDHID] = r })
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
 
@@ -181,6 +185,12 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
         EJECUTADO:    parseFloat(ej.toFixed(1)), ESTADO: overrides[p.DDHID] || estadoCalc,
         FECHA_INICIO: fechaInicio || '—',
         FECHA_FIN:    fechaFin    || '—',
+        FECHA_ENTREGA_PLAT:  platMap[p.DDHID]?.fecha_entrega_plataforma    || null,
+        FECHA_PREINICIO:     platMap[p.DDHID]?.fecha_preinicio_perforacion  || null,
+        FECHA_CIERRE_PLAT:   platMap[p.DDHID]?.fecha_cierre_plataforma      || null,
+        STATUS_PLATAFORMA:   platMap[p.DDHID]?.status_plataforma            || '',
+        FORMATO_CHECKLIST:   platMap[p.DDHID]?.formato_checklist            || '',
+        ENTREGADO_POR:       platMap[p.DDHID]?.entregado_por                || '',
         PCT: pct, _estadoManual: !!overrides[p.DDHID],
         ESTE:  parseFloat(p.ESTE  ?? p.este)  || null,
         NORTE: parseFloat(p.NORTE ?? p.norte) || null,
@@ -199,10 +209,10 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       db.query('SELECT * FROM programa_general'),
       db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia" FROM perforacion ORDER BY "Fecha"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("TO" ::text),\'\')::numeric) AS max_to FROM recepcion    GROUP BY "DDHID"'),
-      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM recuperacion  GROUP BY "DDHID"'),
-      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM fotografia    GROUP BY "DDHID"'),
-      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM l_geotecnico  GROUP BY "DDHID"'),
-      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to FROM l_geologico   GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM recuperacion  GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM fotografia    GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM l_geotecnico  GROUP BY "DDHID"'),
+      db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM l_geologico   GROUP BY "DDHID"'),
       db.query('SELECT * FROM estado_overrides'),
     ])
 
@@ -289,12 +299,22 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     }
 
     // Últimas fechas de reporte por tabla
+    function maxFechaDeGrupo(rows) {
+      const fechas = rows.map(r => r.ultima_fecha).filter(Boolean).map(f => {
+        if (f instanceof Date) {
+          const y=f.getUTCFullYear(),m=String(f.getUTCMonth()+1).padStart(2,'0'),d=String(f.getUTCDate()).padStart(2,'0')
+          return `${y}-${m}-${d}`
+        }
+        return String(f).slice(0,10)
+      }).filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort()
+      return fechas[fechas.length-1] || ''
+    }
     const ultimasFechas = {
       perf:  ultimaFecha(perf.rows),
-      recup: ultimaFecha(recup.rows),
-      foto:  ultimaFecha(foto.rows),
-      geot:  ultimaFecha(geotec.rows),
-      geol:  ultimaFecha(geolog.rows),
+      recup: maxFechaDeGrupo(recup.rows),
+      foto:  maxFechaDeGrupo(foto.rows),
+      geot:  maxFechaDeGrupo(geotec.rows),
+      geol:  maxFechaDeGrupo(geolog.rows),
     }
 
     // Serie temporal de perforación para gráfico acumulado
@@ -474,6 +494,153 @@ router.delete('/resumen/estado/:ddhid', authMiddleware, async (req, res) => {
     await db.query('DELETE FROM estado_overrides WHERE ddhid=$1', [req.params.ddhid])
     res.json({ message: 'Restablecido' })
   } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// PUT /api/tables/resumen/plataforma
+router.put('/resumen/plataforma', authMiddleware, async (req, res) => {
+  if (!['ADMIN','SUPERVISOR'].includes(req.user.role))
+    return res.status(403).json({ error: 'Sin permisos' })
+  const { DDHID, campo, valor } = req.body
+  if (!DDHID || !campo) return res.status(400).json({ error: 'DDHID y campo requeridos' })
+  const VALIDOS = ['fecha_entrega_plataforma','fecha_preinicio_perforacion','fecha_cierre_plataforma',
+                   'status_plataforma','formato_checklist','entregado_por']
+  if (!VALIDOS.includes(campo)) return res.status(400).json({ error: 'Campo no válido' })
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS plataforma_info (
+        "DDHID"                     TEXT PRIMARY KEY,
+        fecha_entrega_plataforma    DATE,
+        fecha_preinicio_perforacion DATE,
+        fecha_cierre_plataforma     DATE,
+        status_plataforma           TEXT,
+        formato_checklist           TEXT,
+        entregado_por               TEXT,
+        updated_at                  TIMESTAMP DEFAULT NOW()
+      )
+    `)
+    const val = (valor === '' || valor === null) ? null : valor
+    await db.query(
+      `INSERT INTO plataforma_info ("DDHID", "${campo}", updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT ("DDHID") DO UPDATE SET "${campo}"=$2, updated_at=NOW()`,
+      [DDHID, val]
+    )
+    res.json({ success:true })
+  } catch(err) { res.status(500).json({ error: err.message }) }
+})
+
+// GET /api/tables/resumen/plataforma — todos los registros de plataforma_info
+router.get('/resumen/plataforma', authMiddleware, async (req, res) => {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS plataforma_info (
+        "DDHID"                     TEXT PRIMARY KEY,
+        fecha_entrega_plataforma    DATE,
+        fecha_preinicio_perforacion DATE,
+        fecha_cierre_plataforma     DATE,
+        status_plataforma           TEXT,
+        formato_checklist           TEXT,
+        entregado_por               TEXT,
+        updated_at                  TIMESTAMP DEFAULT NOW()
+      )
+    `)
+    const r = await db.query('SELECT * FROM plataforma_info')
+    res.json(r.rows)
+  } catch(err) { res.status(500).json({ error: err.message }) }
+})
+
+// GET /api/tables/duplicados — escanea todas las tablas buscando DDHID+FROM+TO repetidos
+router.get('/duplicados', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'ADMIN')
+    return res.status(403).json({ error: 'Solo administradores' })
+
+  // Definición: tabla → campos DDHID, from, to
+  const TABLAS = [
+    { key:'recuperacion', ddhid:'"DDHID"', from:'"From"',  to:'"To"'   },
+    { key:'fotografia',   ddhid:'"DDHID"', from:'"From"',  to:'"To"'   },
+    { key:'l_geotecnico', ddhid:'"DDHID"', from:'"From"',  to:'"To"'   },
+    { key:'l_geologico',  ddhid:'"DDHID"', from:'"From"',  to:'"To"'   },
+    { key:'muestreo',     ddhid:'"DDHID"', from:'"DE"',    to:'"HASTA"'},
+    { key:'corte',        ddhid:'"DDHID"', from:'"DE"',    to:'"A"'    },
+    { key:'recepcion',    ddhid:'"DDHID"', from:'"FROM"',  to:'"TO"'   },
+  ]
+
+  const result = {}
+
+  try {
+    // Tablas regulares
+    for (const t of TABLAS) {
+      // Encontrar grupos con más de 1 registro con mismo DDHID+from+to
+      const dupQ = await db.query(`
+        SELECT ${t.ddhid} AS ddhid,
+               ${t.from}::text  AS from_val,
+               ${t.to}::text    AS to_val,
+               array_agg(id ORDER BY id) AS ids,
+               COUNT(*) AS cnt
+        FROM ${t.key}
+        WHERE ${t.ddhid} IS NOT NULL
+          AND ${t.from} IS NOT NULL
+          AND ${t.to}   IS NOT NULL
+        GROUP BY ${t.ddhid}, ${t.from}, ${t.to}
+        HAVING COUNT(*) > 1
+      `)
+      if (dupQ.rows.length === 0) { result[t.key] = []; continue }
+
+      // Traer todos los registros de esos grupos
+      const grupos = []
+      for (const dup of dupQ.rows) {
+        const regsQ = await db.query(
+          `SELECT * FROM ${t.key} WHERE id = ANY($1) ORDER BY id`,
+          [dup.ids]
+        )
+        grupos.push({
+          key:       `${dup.ddhid}_${dup.from_val}_${dup.to_val}`,
+          ddhid:     dup.ddhid,
+          from_val:  dup.from_val,
+          to_val:    dup.to_val,
+          registros: regsQ.rows,
+        })
+      }
+      result[t.key] = grupos
+    }
+
+    // Quick Log (campos diferentes)
+    try {
+      const dupQL = await db.query(`
+        SELECT "DDHID" AS ddhid,
+               from_m::text AS from_val,
+               to_m::text   AS to_val,
+               array_agg(id ORDER BY id) AS ids,
+               COUNT(*) AS cnt
+        FROM quick_log
+        WHERE "DDHID" IS NOT NULL AND from_m IS NOT NULL AND to_m IS NOT NULL
+        GROUP BY "DDHID", from_m, to_m
+        HAVING COUNT(*) > 1
+      `)
+      if (dupQL.rows.length === 0) { result.quicklog = []; }
+      else {
+        const grupos = []
+        for (const dup of dupQL.rows) {
+          const regsQ = await db.query(
+            `SELECT * FROM quick_log WHERE id = ANY($1) ORDER BY id`,
+            [dup.ids]
+          )
+          grupos.push({
+            key:       `${dup.ddhid}_${dup.from_val}_${dup.to_val}`,
+            ddhid:     dup.ddhid,
+            from_val:  dup.from_val,
+            to_val:    dup.to_val,
+            registros: regsQ.rows,
+          })
+        }
+        result.quicklog = grupos
+      }
+    } catch(_) { result.quicklog = [] }
+
+    res.json(result)
+  } catch(err) {
+    console.error('duplicados error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // ── CRUD GENÉRICO ────────────────────────────────────────────────
