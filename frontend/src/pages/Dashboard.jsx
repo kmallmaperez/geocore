@@ -89,12 +89,12 @@ function MaquinaChart({ equipo, ddhid, datos, completado, programado }) {
           </div>
           {programado != null && (() => {
             const ejec  = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
-            const diff  = parseFloat((ejec - programado).toFixed(1))
+            const diff  = parseFloat((ejec - programado).toFixed(2))
             const color = diff >= 0 ? '#10b981' : '#ef4444'
             const sign  = diff >= 0 ? '+' : ''
             return (
               <div style={{ fontSize:11, marginTop:3, display:'flex', gap:10 }}>
-                <span style={{ color:'var(--mut)' }}>Ejec: <strong style={{ color:'var(--txt)' }}>{ejec.toFixed(1)}m</strong></span>
+                <span style={{ color:'var(--mut)' }}>Ejec: <strong style={{ color:'var(--txt)' }}>{ejec.toFixed(2)}m</strong></span>
                 <span style={{ color:'var(--mut)' }}>Prog: <strong style={{ color:'var(--txt)' }}>{programado}m</strong></span>
                 <span style={{ color, fontWeight:700 }}>{sign}{diff}m</span>
               </div>
@@ -382,10 +382,10 @@ export default function Dashboard() {
     let acumDia  = 0
     let acumIdealDia = 0
     serieDiaria.forEach(d => {
-      const ejec_dia   = parseFloat((parseFloat(d.real) - acumDia).toFixed(1))
-      const ideal_dia  = parseFloat((35 * d.maquinas).toFixed(1))
+      const ejec_dia   = parseFloat((parseFloat(d.real) - acumDia).toFixed(2))
+      const ideal_dia  = parseFloat((35 * d.maquinas).toFixed(2))
       acumDia       = parseFloat(d.real)
-      acumIdealDia  = parseFloat((acumIdealDia + ideal_dia).toFixed(1))
+      acumIdealDia  = parseFloat((acumIdealDia + ideal_dia).toFixed(2))
       diario.push(row([fmtFecha(d.fecha), ejec_dia, d.real, d.maquinas, ideal_dia, acumIdealDia]))
     })
 
@@ -501,7 +501,7 @@ export default function Dashboard() {
 
       {/* Gráfico metros por sondaje */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">📊 Avance por Sondaje — ordenado por brecha Perf vs Geológico</div>
+        <div className="ch-title">📊 Avance por Sondaje</div>
         <div ref={sondajWrap} style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
           <div style={{ width:sondajCanvasW, height:280 }}>
             <canvas ref={crSondaj} width={sondajCanvasW} height={280} />
@@ -512,7 +512,7 @@ export default function Dashboard() {
       {/* Tabla resumen */}
       {porSondaje.length > 0 && (
         <div className="t-wrap">
-          <div className="t-top"><span className="t-title">Resumen completo por sondaje</span><button className="btn btn-grn btn-sm" onClick={downloadResumenCSV}>⬇ CSV</button></div>
+          <div className="t-top"><span className="t-title">📊 Resumen completo por sondaje</span><button className="btn btn-grn btn-sm" onClick={downloadResumenCSV}>⬇ CSV</button></div>
           <div className="ox">
             <table className="tbl">
               <thead>

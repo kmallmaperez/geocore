@@ -185,7 +185,7 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
       return {
         DDHID:        p.DDHID, EQUIPO: p.EQUIPO || '',
         PLATAFORMA:   p.PLATAFORMA, PROGRAMADO: programado,
-        EJECUTADO:    parseFloat(ej.toFixed(1)), ESTADO: overrides[p.DDHID] || estadoCalc,
+        EJECUTADO:    parseFloat(ej.toFixed(2)), ESTADO: overrides[p.DDHID] || estadoCalc,
         FECHA_INICIO: fechaInicio || '—',
         FECHA_FIN:    fechaFin    || '—',
         FECHA_ENTREGA_PLAT:  (platMap[p.DDHID] || platMap['__PLAT__' + String(p.PLATAFORMA||'').trim()])?.fecha_entrega_plataforma    || null,
@@ -210,7 +210,7 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
   try {
     const [prog, perf, recep, recup, foto, geotec, geolog, ov] = await Promise.all([
       db.query('SELECT * FROM programa_general'),
-      db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia" FROM perforacion ORDER BY "Fecha"'),
+      db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia", "Acumulado" FROM perforacion ORDER BY "Fecha"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("TO" ::text),\'\')::numeric) AS max_to FROM recepcion    GROUP BY "DDHID"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM recuperacion  GROUP BY "DDHID"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM fotografia    GROUP BY "DDHID"'),
@@ -233,7 +233,14 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
       .map(p => {
         const perfRows = perf.rows.filter(x => x.DDHID === p.DDHID)
-        const perfTotal = perfRows.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
+        // Usar MAX(Acumulado) del sondaje como metros reales perforados
+        const maxAcum = perfRows.reduce((max, x) => {
+          const a = parseFloat(x.Acumulado) || 0
+          return a > max ? a : max
+        }, 0)
+        // Fallback: si no hay Acumulado, usar suma de Total_Dia
+        const sumTotal = perfRows.reduce((s, x) => s + (parseFloat(x.Total_Dia) || 0), 0)
+        const perfTotal = maxAcum > 0 ? maxAcum : sumTotal
         const fechas = perfRows.map(x => x.Fecha).filter(Boolean).map(f => {
           if (f instanceof Date) {
             const y = f.getUTCFullYear(), m = String(f.getUTCMonth()+1).padStart(2,'0'), d = String(f.getUTCDate()).padStart(2,'0')
@@ -266,12 +273,12 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
           DDHID: p.DDHID,
           EQUIPO: p.EQUIPO ? String(p.EQUIPO).trim() : '',
           PROGRAMADO: programado2,
-          PERFORADO:  parseFloat(perfTotal.toFixed(1)),
-          RECEPCION:    parseFloat(maxBy(recep.rows,  p.DDHID).toFixed(1)),
-          RECUPERADO:   parseFloat(maxBy(recup.rows,  p.DDHID).toFixed(1)),
-          FOTOGRAFIADO: parseFloat(maxBy(foto.rows,   p.DDHID).toFixed(1)),
-          GEOTECNICO:   parseFloat(maxBy(geotec.rows, p.DDHID).toFixed(1)),
-          GEOLOGICO:    parseFloat(maxBy(geolog.rows, p.DDHID).toFixed(1)),
+          PERFORADO:  parseFloat(perfTotal.toFixed(2)),
+          RECEPCION:    parseFloat(maxBy(recep.rows,  p.DDHID).toFixed(2)),
+          RECUPERADO:   parseFloat(maxBy(recup.rows,  p.DDHID).toFixed(2)),
+          FOTOGRAFIADO: parseFloat(maxBy(foto.rows,   p.DDHID).toFixed(2)),
+          GEOTECNICO:   parseFloat(maxBy(geotec.rows, p.DDHID).toFixed(2)),
+          GEOLOGICO:    parseFloat(maxBy(geolog.rows, p.DDHID).toFixed(2)),
           ESTADO: overrides[p.DDHID] || estadoCalc,
           PCT: pct,
           FECHA_INICIO: fechaInicio2 || null,
@@ -293,12 +300,23 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
 
     // Totales globales — suma de MAX(To) por sondaje (ya vienen agrupados)
     const totales = {
-      perforado:    parseFloat(perf.rows.reduce((s,r) => s+(parseFloat(r.Total_Dia)||0),0).toFixed(1)),
-      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
-      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
-      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
-      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
-      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(1)),
+      // Total perforado = suma del MAX(Acumulado) por DDHID
+      // Acumulado refleja la profundidad real alcanzada; Total_Dia es solo el incremento diario
+      perforado: (() => {
+        const maxAcumPorDDHID = {}
+        perf.rows.forEach(r => {
+          const acum = parseFloat(r.Acumulado) || 0
+          if (!maxAcumPorDDHID[r.DDHID] || acum > maxAcumPorDDHID[r.DDHID]) {
+            maxAcumPorDDHID[r.DDHID] = acum
+          }
+        })
+        return parseFloat(Object.values(maxAcumPorDDHID).reduce((s,v) => s+v, 0).toFixed(2))
+      })(),
+      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
     }
 
     // Últimas fechas de reporte por tabla
@@ -353,12 +371,44 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     ]
 
     // ── Acumulado real diario ─────────────────────────────────────
+    // Para cada fecha: MAX(Acumulado) de todos los sondajes activos hasta esa fecha
+    // Usamos el Acumulado (profundidad real por sondaje) en lugar de Total_Dia
+    // para evitar inconsistencias por registros duplicados o correcciones
     const perfPorFecha = {}
+    // Primero agrupamos por DDHID+Fecha para obtener el Acumulado máximo de ese día por sondaje
+    const acumPorDDHIDFecha = {}
     perf.rows.forEach(r => {
       const f = r.Fecha instanceof Date
         ? (() => { const d=r.Fecha; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}` })()
         : String(r.Fecha).slice(0,10)
-      perfPorFecha[f] = (perfPorFecha[f] || 0) + (parseFloat(r.Total_Dia) || 0)
+      const key = r.DDHID + '|' + f
+      const acum = parseFloat(r.Acumulado) || 0
+      const totalDia = parseFloat(r.Total_Dia) || 0
+      if (!acumPorDDHIDFecha[key]) acumPorDDHIDFecha[key] = { ddhid: r.DDHID, fecha: f, acum: 0, total: 0 }
+      if (acum > acumPorDDHIDFecha[key].acum) acumPorDDHIDFecha[key].acum = acum
+      acumPorDDHIDFecha[key].total += totalDia
+    })
+    // Para el gráfico diario, calculamos el incremento real usando Acumulado:
+    // incremento del día = Acumulado(hoy) - Acumulado(día_anterior) por DDHID
+    const maxAcumPorDDHID = {}  // máximo Acumulado conocido por DDHID hasta cada fecha
+    const fechasConDatos = [...new Set(Object.values(acumPorDDHIDFecha).map(x => x.fecha))].sort()
+    fechasConDatos.forEach(f => {
+      let incrementoTotal = 0
+      const registrosDelDia = Object.values(acumPorDDHIDFecha).filter(x => x.fecha === f)
+      registrosDelDia.forEach(reg => {
+        const prevMax = maxAcumPorDDHID[reg.ddhid] || 0
+        if (reg.acum > 0) {
+          // Tenemos Acumulado: el incremento es la diferencia con el máximo anterior
+          const inc = reg.acum - prevMax
+          if (inc > 0) incrementoTotal += inc
+          if (reg.acum > prevMax) maxAcumPorDDHID[reg.ddhid] = reg.acum
+        } else {
+          // Sin Acumulado: usar Total_Dia como fallback
+          incrementoTotal += reg.total
+          maxAcumPorDDHID[reg.ddhid] = prevMax + reg.total
+        }
+      })
+      perfPorFecha[f] = incrementoTotal
     })
 
     // Serie diaria (para CSV diario)
@@ -367,7 +417,7 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     const serieDiaria = fechasOrdenadas.map(f => {
       _acum += perfPorFecha[f]
       const maq = Object.values(equipoInicio).filter(ini => ini <= f).length || 1
-      return { fecha: f, real: parseFloat(_acum.toFixed(1)), maquinas: maq }
+      return { fecha: f, real: parseFloat(_acum.toFixed(2)), maquinas: maq }
     })
 
     // ── Serie sobre fechas del PROGRAMA ──────────────────────────
@@ -395,8 +445,8 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       return {
         fecha:     f,
         acumProg:  acumProg,
-        acumReal:  parseFloat(acumRealProg.toFixed(1)),
-        acumIdeal: parseFloat(acumIdealProg.toFixed(1)),
+        acumReal:  parseFloat(acumRealProg.toFixed(2)),
+        acumIdeal: parseFloat(acumIdealProg.toFixed(2)),
         maquinas:  Object.values(equipoInicio).filter(ini => ini <= f).length || 1,
       }
     })
@@ -422,20 +472,20 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
         const diasTotal = Math.round((new Date(siguiente.fecha) - new Date(anterior.fecha)) / 86400000)
         const diasUlt   = Math.round((new Date(ultimaFechaReal) - new Date(anterior.fecha)) / 86400000)
         const ratio = diasTotal > 0 ? diasUlt / diasTotal : 0
-        acumProgUlt = parseFloat((anterior.acumProg + (siguiente.acumProg - anterior.acumProg) * ratio).toFixed(1))
+        acumProgUlt = parseFloat((anterior.acumProg + (siguiente.acumProg - anterior.acumProg) * ratio).toFixed(2))
       }
 
       // Acumulado ideal: tomar el ideal del punto anterior del programa y sumar días transcurridos
       const diasDesdeAnt = anterior ? Math.round((new Date(ultimaFechaReal) - new Date(anterior.fecha)) / 86400000) : 0
       const acumIdealAnt = anterior ? serieProg.find(p => p.fecha === anterior.fecha)?.acumIdeal ?? 0 : 0
-      const acumIdealUlt = parseFloat((acumIdealAnt + 35 * maqUlt * diasDesdeAnt).toFixed(1))
+      const acumIdealUlt = parseFloat((acumIdealAnt + 35 * maqUlt * diasDesdeAnt).toFixed(2))
 
       // Insertar en la posición correcta (orden cronológico)
       const insertIdx = serieProg.findIndex(p => p.fecha > ultimaFechaReal)
       const puntoExtra = {
         fecha:     ultimaFechaReal,
         acumProg:  acumProgUlt,
-        acumReal:  parseFloat(acumRealUlt.toFixed(1)),
+        acumReal:  parseFloat(acumRealUlt.toFixed(2)),
         acumIdeal: acumIdealUlt,
         maquinas:  maqUlt,
         esExtra:   true,
