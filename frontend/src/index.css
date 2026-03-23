@@ -104,6 +104,7 @@ button { cursor: pointer; }
 .b-usr { background: rgba(100,116,139,.14); color: var(--mut); }
 .b-act { background: rgba(16,185,129,.14);  color: var(--grn); }
 .b-ina { background: rgba(239,68,68,.14);   color: var(--red); }
+.b-vie { background: rgba(20,184,166,.14);   color: #14b8a6; }
 .b-pro { background: rgba(59,130,246,.14);  color: var(--blu); }
 .b-pen { background: rgba(100,116,139,.14); color: var(--mut); }
 

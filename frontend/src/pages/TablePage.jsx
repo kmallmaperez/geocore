@@ -122,7 +122,8 @@ export default function TablePage() {
 
   if (!def) return <div className="page-title">Tabla no encontrada</div>
 
-  const canWrite     = user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey)
+  const isViewer     = user.role === 'VIEWER'
+  const canWrite     = !isViewer && (user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey))
   // USER puede editar/eliminar solo si es dueño del registro (Geologo === user.name)
   function canEditRow(row) {
     if (user.role === 'ADMIN' || user.role === 'SUPERVISOR') return true

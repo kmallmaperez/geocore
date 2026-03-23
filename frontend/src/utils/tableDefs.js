@@ -288,5 +288,5 @@ export const DATE_COLS = new Set([
   'FECHA_INICIO', 'FECHA_FIN', 'created_at'
 ])
 export function inits(n) { return n.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase() }
-export function roleCls(r) { return {ADMIN:'b-adm',SUPERVISOR:'b-sup',USER:'b-usr'}[r]||'b-usr' }
+export function roleCls(r) { return {ADMIN:'b-adm',SUPERVISOR:'b-sup',USER:'b-usr',VIEWER:'b-vie'}[r]||'b-usr' }
 export function statCls(s) { return s==='Completado'?'b-act':s==='En Progreso'?'b-pro':'b-pen' }

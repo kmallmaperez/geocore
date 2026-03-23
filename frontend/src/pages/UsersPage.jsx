@@ -27,6 +27,7 @@ function UserModal({ user, onClose, onSave }) {
   }
 
   const isAllAccess = form.role === 'ADMIN' || form.role === 'SUPERVISOR'
+  const isViewer    = form.role === 'VIEWER'
   const assignableKeys = [...ALL_TABLE_KEYS, 'quicklog']
 
   return (
@@ -43,10 +44,16 @@ function UserModal({ user, onClose, onSave }) {
               <option value="ADMIN">ADMIN</option>
               <option value="SUPERVISOR">SUPERVISOR</option>
               <option value="USER">USER</option>
+              <option value="VIEWER">VIEWER</option>
             </select>
           </div>
         </div>
 
+        {isViewer && (
+          <div className="alert a-ok" style={{marginTop:12}}>
+            👁 Acceso de solo lectura — puede ver todas las tablas y exportar Excel, pero no puede crear, editar ni eliminar registros.
+          </div>
+        )}
         {form.role === 'USER' && (
           <div style={{marginTop:14}}>
             <label style={{fontSize:10,fontWeight:600,color:'var(--mut)',textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:8}}>

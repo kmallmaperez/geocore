@@ -35,6 +35,7 @@ function checkTable(req, res, next) {
 }
 function canWrite(req, res, next) {
   const u = req.user
+  if (u.role === 'VIEWER') return res.status(403).json({ error: 'Los visualizadores no pueden modificar datos' })
   if (u.role === 'ADMIN' || u.role === 'SUPERVISOR') return next()
   if (u.tables.includes('all') || u.tables.includes(req.params.table)) return next()
   return res.status(403).json({ error: 'Sin permiso para escribir en esta tabla' })

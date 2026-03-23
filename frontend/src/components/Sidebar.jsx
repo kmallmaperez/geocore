@@ -50,6 +50,11 @@ export default function Sidebar() {
 
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
+    // VIEWER: ve todo excepto sistema (usuarios, duplicados) y puede exportar
+    if (user.role === 'VIEWER') {
+      const restricted = ['/usuarios','/duplicados']
+      return !restricted.includes(item.id) && !item.section
+    }
     if (user.role !== 'USER') return true
     if (['/dashboard','/resumen','/exportar','/mapa','/quicklog'].includes(item.id)) return true
     const tkey = item.id?.replace('/tabla/', '')
