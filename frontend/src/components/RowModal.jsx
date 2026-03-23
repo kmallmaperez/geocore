@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { DEFS, NUM_COLS, REQUIRED, validateClient, computeAuto, today } from '../utils/tableDefs'
 import { useAuth } from '../context/AuthContext'
 
-export default function RowModal({ tkey, onClose, onSave, initData, existingRows, ddhids }) {
+export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, initData, existingRows, ddhids }) {
   const { user } = useAuth()
   const def = DEFS[tkey]
   const formCols = def.formCols || def.cols.filter(c => c !== 'Geologo')
@@ -132,10 +132,15 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
         return <input type="text" placeholder="Ej: MR26004-11" {...base} />
       }
       // Resto de tablas: dropdown con sondajes de Programa General
+      // En modo edición, asegurar que el DDHID actual aparezca aunque no esté en la lista
+      const currentDDHID = initData?.DDHID
+      const listWithCurrent = currentDDHID && !(ddhids||[]).includes(currentDDHID)
+        ? [currentDDHID, ...(ddhids||[])]
+        : (ddhids||[])
       return (
         <select {...base}>
           <option value="">— Seleccionar DDHID —</option>
-          {(ddhids||[]).map(d => <option key={d} value={d}>{d}</option>)}
+          {listWithCurrent.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
       )
     }
@@ -216,6 +221,17 @@ export default function RowModal({ tkey, onClose, onSave, initData, existingRows
         <div className="m-actions">
           <button className="btn btn-acc" onClick={handleSave}>💾 Guardar</button>
           <button className="btn btn-out" onClick={onClose}>Cancelar</button>
+          {initData && canDelete && onDelete && (
+            <button className="btn btn-red" style={{marginLeft:'auto'}}
+              onClick={() => {
+                if (window.confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) {
+                  onDelete(initData)
+                  onClose()
+                }
+              }}>
+              🗑 Eliminar
+            </button>
+          )}
         </div>
 
       </div>

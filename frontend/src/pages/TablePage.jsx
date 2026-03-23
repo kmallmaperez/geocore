@@ -123,6 +123,22 @@ export default function TablePage() {
   if (!def) return <div className="page-title">Tabla no encontrada</div>
 
   const canWrite     = user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey)
+  // USER puede editar/eliminar solo si es dueño del registro (Geologo === user.name)
+  function canEditRow(row) {
+    if (user.role === 'ADMIN' || user.role === 'SUPERVISOR') return true
+    if (!canWrite) return false
+    const geologo = row.Geologo || row.geologo
+    // Si no tiene Geologo (tabla sin ese campo), permitir
+    if (!geologo) return true
+    return geologo === user.name
+  }
+  function canDeleteRow(row) {
+    if (!canEditRow(row)) return false
+    // Solo registros de los últimos 10 días
+    if (!row.Fecha) return user.role === 'ADMIN' || user.role === 'SUPERVISOR'
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 10)
+    return new Date(row.Fecha) >= cutoff
+  }
   const canImport    = user.role === 'ADMIN'
   const tieneReporte = TIENE_REPORTE.has(tkey)
 
@@ -265,11 +281,8 @@ export default function TablePage() {
                         <button className="btn btn-grn btn-sm" title="Reporte WhatsApp"
                           onClick={() => setReporte(row)}>📋</button>
                       )}
-                      {canWrite && (
-                        <button className="btn btn-blu btn-sm" onClick={() => setModal(row)}>✎</button>
-                      )}
-                      {canWrite && user.role !== 'USER' && (
-                        <button className="btn btn-red btn-sm" onClick={() => handleDelete(row)}>✕</button>
+                      {canEditRow(row) && (
+                        <button className="btn btn-blu btn-sm" onClick={() => setModal(row)} title="Editar">✎</button>
                       )}
                     </div>
                   </td>
@@ -282,6 +295,8 @@ export default function TablePage() {
 
       {modal && (
         <RowModal tkey={tkey} onClose={() => setModal(null)} onSave={handleSave}
+          onDelete={handleDelete}
+          canDelete={modal !== 'new' && canDeleteRow(modal)}
           initData={modal === 'new' ? null : modal} existingRows={rows} ddhids={ddhids} />
       )}
       {importing && (
