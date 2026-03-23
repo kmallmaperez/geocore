@@ -794,6 +794,11 @@ router.put('/:table/:id', authMiddleware, checkTable, canWrite, async (req, res)
     if (!curr.rows[0]) return res.status(404).json({ error: 'Registro no encontrado' })
 
     if (req.user.role === 'USER') {
+      // Solo puede editar si es dueño del registro (campo Geologo)
+      const geologo = curr.rows[0].Geologo || curr.rows[0].geologo
+      if (geologo && geologo !== req.user.name)
+        return res.status(403).json({ error: 'Solo puedes editar tus propios registros' })
+      // Restricción de tiempo: últimos 10 días
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 10)
       if (curr.rows[0].Fecha && new Date(curr.rows[0].Fecha) < cutoff)
         return res.status(403).json({ error: 'Solo puedes editar registros de los últimos 10 días' })
@@ -817,12 +822,22 @@ router.put('/:table/:id', authMiddleware, checkTable, canWrite, async (req, res)
 
 // DELETE /api/tables/:table/:id
 router.delete('/:table/:id', authMiddleware, checkTable, async (req, res) => {
-  if (!['ADMIN','SUPERVISOR'].includes(req.user.role))
-    return res.status(403).json({ error: 'Sin permisos para eliminar' })
   try {
     const table = req.params.table
-    const r = await db.query(`DELETE FROM ${table} WHERE id=$1 RETURNING id`, [parseInt(req.params.id)])
-    if (!r.rows[0]) return res.status(404).json({ error: 'Registro no encontrado' })
+    const id    = parseInt(req.params.id)
+    // Verificar que el registro existe
+    const curr = await db.query(`SELECT * FROM ${table} WHERE id=$1`, [id])
+    if (!curr.rows[0]) return res.status(404).json({ error: 'Registro no encontrado' })
+
+    // ADMIN y SUPERVISOR pueden eliminar cualquier registro
+    if (!['ADMIN','SUPERVISOR'].includes(req.user.role)) {
+      // USER: solo puede eliminar si es dueño del registro
+      const geologo = curr.rows[0].Geologo || curr.rows[0].geologo
+      if (!geologo || geologo !== req.user.name)
+        return res.status(403).json({ error: 'Solo puedes eliminar tus propios registros' })
+    }
+
+    const r = await db.query(`DELETE FROM ${table} WHERE id=$1 RETURNING id`, [id])
     res.json({ success: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
