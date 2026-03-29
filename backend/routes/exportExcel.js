@@ -19,14 +19,14 @@ const DATE_COLS = new Set([
 ])
 
 const TABLES = {
-  perforacion:   ['DDHID','Fecha','From_Dia','TO_Dia','Turno_Dia','From_Noche','To_Noche','Turno_Noche','Total_Dia','Acumulado','Comentarios','Geologo'],
+  perforacion:   ['DDHID','EQUIPO','Fecha','From_Dia','TO_Dia','Turno_Dia','From_Noche','To_Noche','Turno_Noche','Total_Dia','Acumulado','Comentarios','Geologo'],
   recepcion:     ['Fecha','HORA','DDHID','FROM','TO','Metros','CAJAS','Geologo'],
   recuperacion:  ['Fecha','DDHID','From','To','Avance','Geologo'],
   fotografia:    ['Fecha','DDHID','From','To','Avance','N_Foto','Geologo'],
   l_geotecnico:  ['Fecha','DDHID','From','To','Avance','PLT','UCS','Geologo'],
   l_geologico:   ['Fecha','DDHID','From','To','Avance','Geologo','SG','Observaciones'],
-  muestreo:      ['Fecha','DDHID','DE','HASTA','MUESTRAS','Geologo'],
-  corte:         ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINAS','Geologo'],
+  muestreo:      ['Fecha','DDHID','BATCH','DE','HASTA','MUESTRAS','Geologo'],
+  corte:         ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINA','Observaciones','Geologo'],
   envios:        ['Fecha','Envio_N','Total_muestras','Geologo'],
   batch:         ['Envio','Batch','Sondaje','Qty_Mina','Qty_Lab','Muestras_Dens','Cod_Cert','F_Envio','F_Solicitud','F_Resultados','Tiempo_dias','Geologo'],
   tormentas:     ['Fecha','Desde','Hasta','TOTAL','Minutos','Horas','Geologo'],
@@ -34,7 +34,7 @@ const TABLES = {
 
 const SHEET_NAMES = {
   resumen_dashboard: 'Resumen de Avances', resumen_general: 'Resumen de Sondajes y Plataforma', programa_general: 'Programa General',
-  perforacion: 'Perforación',         recepcion: 'Recepción',
+  perforacion: 'Perforación',         perf_equipo: 'Perforación por Equipo', recepcion: 'Recepción',
   recuperacion: 'Recuperación',       fotografia: 'Fotografía',
   l_geotecnico: 'L_Geotécnico',       l_geologico: 'L_Geológico',
   muestreo: 'Muestreo',               corte: 'Corte',
@@ -44,7 +44,7 @@ const SHEET_NAMES = {
 
 const HEADER_COLORS = {
   resumen_dashboard: '0F4C81', resumen_general: '1E3A5F',  programa_general: '1E3A5F',
-  perforacion: '10B981',      recepcion: '3B82F6',
+  perforacion: '10B981',      perf_equipo: '10B981', recepcion: '3B82F6',
   recuperacion: 'A855F7',     fotografia: 'F59E0B',
   l_geotecnico: 'EF4444',     l_geologico: '14B8A6',
   muestreo: '8B5CF6',         corte: 'F97316',
@@ -240,10 +240,126 @@ router.get('/download', authMiddleware, async (req, res) => {
     await buildSheet(ExcelJS, wb, 'programa_general',
       ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'], pg.rows)
 
+    // Build EQUIPO map from programa_general for perforacion enrichment
+    const pgEqRows = await db.query('SELECT "DDHID", "EQUIPO" FROM programa_general')
+    const pgEqMap = {}
+    pgEqRows.rows.forEach(r => { if (r.DDHID) pgEqMap[String(r.DDHID).trim()] = String(r.EQUIPO||'').trim() })
+
     // ── HOJAS 4+: Resto de tablas ───────────────────────────────
     for (const [tkey, cols] of Object.entries(TABLES)) {
       const r = await db.query(`SELECT * FROM ${tkey} ORDER BY id`)
-      await buildSheet(ExcelJS, wb, tkey, cols, r.rows)
+      // Enrich perforacion rows with EQUIPO
+      let sheetRows = r.rows
+      if (tkey === 'perforacion') {
+        sheetRows = r.rows.map(row => ({
+          ...row,
+          EQUIPO: pgEqMap[String(row.DDHID||'').trim()] || ''
+        }))
+      }
+      await buildSheet(ExcelJS, wb, tkey, cols, sheetRows)
+
+      // ── Hoja "Perforación por Equipo" inmediatamente después de Perforación ──
+      if (tkey === 'perforacion') {
+        const EQUIPOS = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A']
+
+        // Agrupar Total_Dia por fecha y equipo
+        const equipoMap = pgEqMap  // reuse the map built above
+        const perfRows = sheetRows
+        const porFechaEquipo = {}   // { 'YYYY-MM-DD': { 'HYDX-5A-05': X, ... } }
+
+        perfRows.forEach(row => {
+          // Resolver fecha
+          let fecha = ''
+          if (row.Fecha instanceof Date) {
+            const d = row.Fecha
+            fecha = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`
+          } else {
+            fecha = String(row.Fecha || '').slice(0,10)
+          }
+          if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return
+
+          const ddhidKey = String(row.DDHID || '').trim()
+          const equipo  = equipoMap[ddhidKey] || String(row.EQUIPO || '').trim()
+          const total   = parseFloat(row.Total_Dia) || 0
+
+          if (!porFechaEquipo[fecha]) porFechaEquipo[fecha] = {}
+          // Sumar por equipo en esa fecha (puede haber varios registros)
+          porFechaEquipo[fecha][equipo] = (porFechaEquipo[fecha][equipo] || 0) + total
+        })
+
+        // Generar rango de fechas correlativo (sin huecos)
+        const fechas = Object.keys(porFechaEquipo).sort()
+        if (fechas.length === 0) continue
+
+        const fechaInicio = new Date(fechas[0])
+        const fechaFin    = new Date(fechas[fechas.length - 1])
+        const allFechas   = []
+        for (let d = new Date(fechaInicio); d <= fechaFin; d.setUTCDate(d.getUTCDate() + 1)) {
+          const y = d.getUTCFullYear()
+          const m = String(d.getUTCMonth()+1).padStart(2,'0')
+          const day = String(d.getUTCDate()).padStart(2,'0')
+          allFechas.push(`${y}-${m}-${day}`)
+        }
+
+        // Construir filas para buildSheet
+        const equipoRows = allFechas.map(fecha => {
+          const dData = porFechaEquipo[fecha] || {}
+          const vals  = {}
+          vals.Fecha  = fecha
+          let total = 0
+          EQUIPOS.forEach(eq => {
+            const v = parseFloat((dData[eq] || 0).toFixed(2))
+            vals[eq] = v
+            total += v
+          })
+          vals['TOTAL DIA'] = parseFloat(total.toFixed(2))
+          return vals
+        })
+
+        const equipoCols = ['Fecha', ...EQUIPOS, 'TOTAL DIA']
+        // Build perf_equipo sheet manually to ensure numeric format for equipo columns
+        {
+          const bgHex = 'B4D4FF'  // light blue header
+          const ws2 = wb.addWorksheet('Perforación por Equipo')
+          ws2.addRow(equipoCols)
+          const hdr2 = ws2.getRow(1)
+          hdr2.height = 22
+          hdr2.eachCell(cell => {
+            cell.font      = { bold:true, color:{argb:'FF1E3A5F'}, name:'Arial', size:10 }
+            cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:'FF' + bgHex} }
+            cell.alignment = { horizontal:'center', vertical:'middle' }
+            cell.border    = { bottom:{ style:'medium', color:{argb:'FF000000'} } }
+          })
+          equipoRows.forEach((row, ri) => {
+            const vals = equipoCols.map(col => {
+              if (col === 'Fecha') return row[col] || ''
+              return typeof row[col] === 'number' ? row[col] : (parseFloat(row[col]) || 0)
+            })
+            const dr = ws2.addRow(vals)
+            const zebraFg = ri % 2 === 0 ? 'FFF1F5F9' : 'FFFFFFFF'
+            dr.eachCell({ includeEmpty:true }, (cell, ci) => {
+              const col = equipoCols[ci-1]
+              cell.fill   = { type:'pattern', pattern:'solid', fgColor:{ argb:zebraFg } }
+              cell.font   = { name:'Arial', size:10 }
+              cell.border = { bottom:{ style:'thin', color:{argb:'FFCBD5E1'} }, right:{ style:'thin', color:{argb:'FFCBD5E1'} } }
+              if (col !== 'Fecha') {
+                cell.numFmt    = '#,##0.00'
+                cell.alignment = { horizontal:'right', vertical:'middle' }
+              } else {
+                cell.alignment = { horizontal:'left', vertical:'middle' }
+              }
+            })
+          })
+          if (equipoRows.length > 0) {
+            ws2.autoFilter = `A1:${ws2.getColumn(equipoCols.length).letter}1`
+          }
+          equipoCols.forEach((col, i) => {
+            const maxLen = equipoRows.reduce((mx, row) => Math.max(mx, String(row[col]||'').length), col.length)
+            ws2.getColumn(i+1).width = Math.min(Math.max(maxLen+2, 10), 20)
+          })
+          ws2.views = [{ state:'frozen', ySplit:1 }]
+        }
+      }
     }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

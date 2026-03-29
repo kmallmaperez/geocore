@@ -54,16 +54,16 @@ export const DEFS = {
   },
   muestreo: {
     label: 'Muestreo',
-    cols:     ['Fecha','DDHID','DE','HASTA','MUESTRAS','Geologo'],
-    formCols: ['Fecha','DDHID','DE','HASTA','MUESTRAS'],
-    // Geologo → auto
-    geo: true, ft: ['DE','HASTA'],
+    cols:     ['Fecha','DDHID','BATCH','DE','HASTA','MUESTRAS','Geologo'],
+    formCols: ['Fecha','DDHID','BATCH','DE','HASTA','MUESTRAS'],
+    // MUESTRAS → auto (HASTA - DE + 1), Geologo → auto
+    geo: true, ft: ['DE','HASTA'], av: false,
   },
   corte: {
     label: 'Corte',
-    cols:     ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINAS','Geologo'],
-    formCols: ['Fecha','DDHID','DE','A','CAJAS','MAQUINAS'],
-    // AVANCE → auto, Geologo → auto
+    cols:     ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINA','Observaciones','Geologo'],
+    formCols: ['Fecha','DDHID','DE','A','CAJAS','MAQUINA','Observaciones'],
+    // AVANCE → auto (A - DE), Geologo → auto, MAQUINAS → datalist dinámico
     geo: true, ft: ['DE','A'], av: true,
   },
   envios: {
@@ -105,8 +105,8 @@ export const REQUIRED = {
   fotografia:       ['Fecha','DDHID','N_Foto'],
   l_geotecnico:     ['Fecha','DDHID','PLT','UCS'],
   l_geologico:      ['Fecha','DDHID'],
-  muestreo:         ['Fecha','DDHID','DE','HASTA','MUESTRAS'],
-  corte:            ['Fecha','DDHID','CAJAS','MAQUINAS'],
+  muestreo:         ['Fecha','DDHID','DE','HASTA'],
+  corte:            ['Fecha','DDHID','DE','A'],
   envios:           ['Fecha','Envio_N','Total_muestras'],
   batch:            ['Envio','Batch','Sondaje'],
   tormentas:        ['Fecha','Desde','Hasta'],
@@ -237,6 +237,22 @@ export function computeAuto(tkey, form) {
     auto.Turno_Dia   = turnoD.toFixed(2)
     auto.Turno_Noche = turnoN.toFixed(2)
     auto.Total_Dia   = (turnoD + turnoN).toFixed(2)
+  }
+
+  // Corte: AVANCE (uppercase) = A - DE
+  if (tkey === 'corte') {
+    const de = parseFloat(form.DE), a = parseFloat(form.A)
+    if (!isNaN(de) && !isNaN(a) && a >= de) {
+      auto.AVANCE = (a - de).toFixed(2)
+    }
+  }
+
+  // Muestreo: MUESTRAS = HASTA - DE + 1
+  if (tkey === 'muestreo') {
+    const de = parseFloat(form.DE), hasta = parseFloat(form.HASTA)
+    if (!isNaN(de) && !isNaN(hasta) && hasta >= de) {
+      auto.MUESTRAS = Math.round(hasta - de + 1)
+    }
   }
 
   // Recepción: Metros = TO - FROM

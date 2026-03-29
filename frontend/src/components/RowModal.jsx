@@ -11,7 +11,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     Turno_Dia: { label: 'Turno Día (auto)', hint: 'TO_Día − From_Día' },
     Turno_Noche: { label: 'Turno Noche (auto)', hint: 'To_Noche − From_Noche' },
     Total_Dia: { label: 'Total Día (auto)', hint: 'Turno Día + Turno Noche' },
-    Avance: { label: 'Avance (auto)', hint: 'TO − FROM' },
+    Avance:   { label: 'Avance (auto)',   hint: 'A − DE' },
+    MUESTRAS: { label: 'Muestras (auto)', hint: 'HASTA − DE + 1' },
     Metros: { label: 'Metros (auto)', hint: 'TO − FROM' },
     Minutos: { label: 'Minutos (auto)', hint: 'Hasta − Desde' },
     Horas: { label: 'Horas (auto)', hint: 'Minutos ÷ 60' },
@@ -61,7 +62,7 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       ['From_Noche', 'To_Noche'],   // perforacion turno noche
       ['FROM',       'TO'],         // recepcion
       ['From',       'To'],         // recuperacion, fotografia, geotecnico, geologico
-      ['DE',         'HASTA'],      // muestreo
+      ['DE',         'HASTA'],      // muestreo (DE se calcula como maxHASTA + 1 abajo)
       ['DE',         'A'],          // corte
     ]
 
@@ -82,10 +83,26 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       }
     })
 
+    // Muestreo: DE = max(HASTA) + 1
+    if (tkey === 'muestreo' && updates.DE !== undefined) {
+      updates.DE = String(parseFloat(updates.DE) + 1)
+    }
+
     if (Object.keys(updates).length > 0) {
       setForm(prev => ({ ...prev, ...updates }))
     }
   }, [form.DDHID, existingRows])  // re-ejecutar si cambia DDHID o llegan nuevos datos
+
+  // Muestreo: DE = max(HASTA) global + 1 (sin filtrar por sondaje, solo en nuevo registro)
+  useEffect(() => {
+    if (tkey !== 'muestreo' || initData) return
+    const allHasta = (existingRows||[])
+      .map(r => parseFloat(r.HASTA))
+      .filter(v => !isNaN(v) && v >= 0)
+    if (allHasta.length === 0) return
+    const maxHasta = Math.max(...allHasta)
+    setForm(prev => ({ ...prev, DE: String(maxHasta + 1) }))
+  }, [tkey, existingRows, initData])
 
   useEffect(() => {
     if (Object.keys(touched).length === 0) return
@@ -144,12 +161,30 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
         </select>
       )
     }
+    // Corte: MAQUINAS como input con datalist (valores únicos de registros anteriores)
+    if (col === 'MAQUINA' && tkey === 'corte') {
+      const maquinasOpts = [...new Set(
+        (existingRows||[]).map(r => String(r.MAQUINA||'').trim()).filter(Boolean)
+      )].sort()
+      return (
+        <>
+          <input list="maquinas-list" {...base} placeholder="Ej: HYDX-5A-05" autoComplete="off"/>
+          <datalist id="maquinas-list">
+            {maquinasOpts.map(m => <option key={m} value={m}/>)}
+          </datalist>
+        </>
+      )
+    }
+
     if (['Fecha','F_Envio','F_Solicitud','F_Resultados'].includes(col))
       return <input type="date" {...base} />
     if (['HORA','Desde','Hasta'].includes(col))
       return <input type="time" {...base} />
     if (['Comentarios','Observaciones'].includes(col))
       return <textarea rows={2} style={{ resize:'vertical' }} {...base} />
+    if (col === 'MUESTRAS' && tkey === 'muestreo')
+      return <input type="number" readOnly value={autoVals.MUESTRAS ?? form[col] ?? ''}
+        style={{color:'var(--grn)'}} onChange={()=>{}} onBlur={()=>{}}/>
     return <input type={NUM_COLS.has(col) ? 'number' : 'text'} step="0.01" {...base} />
   }
 
@@ -161,6 +196,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     if (autoVals.Total_Dia  !== undefined) autoPreview.push({ key:'Total_Dia',  val: autoVals.Total_Dia + ' m' })
   }
   if (def.av && autoVals.Avance !== undefined) autoPreview.push({ key:'Avance', val: autoVals.Avance + ' m' })
+  if (tkey === 'corte' && autoVals.AVANCE !== undefined) autoPreview.push({ key:'AVANCE', val: autoVals.AVANCE + ' m' })
+  if (tkey === 'muestreo' && autoVals.MUESTRAS !== undefined) autoPreview.push({ key:'MUESTRAS', val: String(autoVals.MUESTRAS) })
   if (tkey === 'recepcion' && autoVals.Metros !== undefined) autoPreview.push({ key:'Metros', val: autoVals.Metros + ' m' })
   if (tkey === 'tormentas') {
     if (autoVals.Minutos !== undefined) autoPreview.push({ key:'Minutos', val: autoVals.Minutos + ' min' })
