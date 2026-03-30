@@ -61,9 +61,9 @@ export const DEFS = {
   },
   corte: {
     label: 'Corte',
-    cols:     ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINA','Observaciones','Geologo'],
-    formCols: ['Fecha','DDHID','DE','A','CAJAS','MAQUINA','Observaciones'],
-    // AVANCE → auto (A - DE), Geologo → auto, MAQUINAS → datalist dinámico
+    cols:     ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINAS','OBSERVACIONES','Geologo'],
+    formCols: ['Fecha','DDHID','DE','A','CAJAS','MAQUINAS','OBSERVACIONES'],
+    // AVANCE → auto (A - DE), Geologo → auto
     geo: true, ft: ['DE','A'], av: true,
   },
   envios: {
@@ -91,7 +91,7 @@ export const DEFS = {
 export const NUM_COLS = new Set([
   'ESTE','NORTE','ELEV','LENGTH','From','To','FROM','TO','DE','HASTA','A',
   'Avance','AVANCE','Total_Dia','Turno_Dia','Turno_Noche','From_Dia','TO_Dia',
-  'From_Noche','To_Noche','Acumulado','Metros','CAJAS','MUESTRAS','MAQUINAS',
+  'From_Noche','To_Noche','Acumulado','Metros','CAJAS','MUESTRAS',
   'Minutos','Horas','TOTAL','PLT','UCS','SG','N_Foto','Qty_Mina','Qty_Lab',
   'Muestras_Dens','Tiempo_dias','Envio_N','Total_muestras',
 ])

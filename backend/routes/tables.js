@@ -22,7 +22,7 @@ const TABLE_COLS = {
   l_geotecnico:     ['Fecha','DDHID','From','To','Avance','PLT','UCS','Geologo'],
   l_geologico:      ['Fecha','DDHID','From','To','Avance','Geologo','SG','Observaciones'],
   muestreo:         ['Fecha','DDHID','BATCH','DE','HASTA','MUESTRAS','Geologo'],
-  corte:            ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINA','Observaciones','Geologo'],
+  corte:            ['Fecha','DDHID','DE','A','AVANCE','CAJAS','MAQUINAS','OBSERVACIONES','Geologo'],
   envios:           ['Fecha','Envio_N','Total_muestras','Geologo'],
   batch:            ['Envio','Batch','Sondaje','Qty_Mina','Qty_Lab','Muestras_Dens','Cod_Cert','F_Envio','F_Solicitud','F_Resultados','Tiempo_dias','Geologo'],
   tormentas:        ['Fecha','Desde','Hasta','TOTAL','Minutos','Horas','Geologo'],
@@ -64,7 +64,7 @@ router.get('/ddhids/:tkey', authMiddleware, async (req, res) => {
     fotografia:   '"To"',
     l_geotecnico: '"To"',
     l_geologico:  '"To"',
-    muestreo:     '"HASTA"',
+    // muestreo: no filtrar por profundidad — las muestras pueden tomarse en cualquier momento
     corte:        '"A"',
   }
 

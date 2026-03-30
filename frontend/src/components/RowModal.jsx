@@ -162,9 +162,9 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       )
     }
     // Corte: MAQUINAS como input con datalist (valores únicos de registros anteriores)
-    if (col === 'MAQUINA' && tkey === 'corte') {
+    if (col === 'MAQUINAS' && tkey === 'corte') {
       const maquinasOpts = [...new Set(
-        (existingRows||[]).map(r => String(r.MAQUINA||'').trim()).filter(Boolean)
+        (existingRows||[]).map(r => String(r.MAQUINAS||'').trim()).filter(Boolean)
       )].sort()
       return (
         <>
@@ -185,6 +185,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     if (col === 'MUESTRAS' && tkey === 'muestreo')
       return <input type="number" readOnly value={autoVals.MUESTRAS ?? form[col] ?? ''}
         style={{color:'var(--grn)'}} onChange={()=>{}} onBlur={()=>{}}/>
+    if (col === 'OBSERVACIONES')
+      return <textarea {...base} rows={2} style={{resize:'vertical',width:'100%',background:'var(--bg)',border:'1px solid var(--brd)',borderRadius:6,padding:'6px 8px',color:'var(--txt)',fontSize:13,outline:'none'}}/>
     return <input type={NUM_COLS.has(col) ? 'number' : 'text'} step="0.01" {...base} />
   }
 
