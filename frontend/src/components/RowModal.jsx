@@ -45,6 +45,7 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [autoVals, setAutoVals] = useState({})
+  const [saving,   setSaving]   = useState(false)
 
   useEffect(() => { setAutoVals(computeAuto(tkey, form)) }, [form, tkey])
 
@@ -123,16 +124,22 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (saving) return
     const allTouched = {}
     formCols.forEach(c => { allTouched[c] = true })
     setTouched(allTouched)
     const errs = validateClient(tkey, form, existingRows, initData?.id)
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
+    setSaving(true)
     const finalData = { ...form, ...autoVals }
     if (def.geo) finalData.Geologo = user.name
-    onSave(finalData)
+    try {
+      await onSave(finalData)
+    } finally {
+      setSaving(false)
+    }
   }
 
   function fieldFor(col) {
@@ -258,7 +265,10 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
 
         {/* Acciones sticky al fondo */}
         <div className="m-actions">
-          <button className="btn btn-acc" onClick={handleSave}>💾 Guardar</button>
+          <button className="btn btn-acc" onClick={handleSave} disabled={saving}
+            style={{opacity: saving ? .6 : 1, cursor: saving ? 'not-allowed' : 'pointer'}}>
+            {saving ? '⏳ Guardando...' : '💾 Guardar'}
+          </button>
           <button className="btn btn-out" onClick={onClose}>Cancelar</button>
           {initData && canDelete && onDelete && (
             <button className="btn btn-red" style={{marginLeft:'auto'}}

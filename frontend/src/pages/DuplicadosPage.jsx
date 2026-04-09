@@ -4,7 +4,8 @@ import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
 
 const TABLAS_CON_RANGO = [
-  { key: 'recuperacion',  label: 'Recuperación',   from: 'From',   to: 'To'    },
+  { key: 'perforacion',   label: 'Perforación',     from: 'Fecha',  to: 'Turnos' },
+  { key: 'recuperacion',  label: 'Recuperación',    from: 'From',   to: 'To'    },
   { key: 'fotografia',    label: 'Fotografía',      from: 'From',   to: 'To'    },
   { key: 'l_geotecnico',  label: 'L_Geotécnico',   from: 'From',   to: 'To'    },
   { key: 'l_geologico',   label: 'L_Geológico',    from: 'From',   to: 'To'    },
@@ -145,7 +146,7 @@ export default function DuplicadosPage() {
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:12}}>
         <div>
           <div className="page-title">🔍 Validación de Duplicados</div>
-          <div className="page-desc">Detecta y elimina registros con mismo DDHID + FROM + TO en {TABLAS_CON_RANGO.length} tablas</div>
+          <div className="page-desc">Detecta y elimina registros duplicados en {TABLAS_CON_RANGO.length} tablas</div>
         </div>
         <button className="btn btn-acc" onClick={scanAll} disabled={loading}>
           {loading ? '⏳ Escaneando...' : '🔍 Escanear todas las tablas'}

@@ -705,6 +705,36 @@ router.get('/duplicados', authMiddleware, async (req, res) => {
       result[t.key] = grupos
     }
 
+    // Perforación — duplicado = mismo DDHID + Fecha + From_Dia + From_Noche
+    try {
+      const dupPerf = await db.query(`
+        SELECT "DDHID",
+               "Fecha"::text      AS from_val,
+               COALESCE("From_Dia"::text,'') || '/' || COALESCE("From_Noche"::text,'') AS to_val,
+               array_agg(id ORDER BY id) AS ids,
+               COUNT(*) AS cnt
+        FROM perforacion
+        WHERE "DDHID" IS NOT NULL AND "Fecha" IS NOT NULL
+        GROUP BY "DDHID", "Fecha", "From_Dia", "From_Noche"
+        HAVING COUNT(*) > 1
+      `)
+      if (dupPerf.rows.length === 0) { result.perforacion = [] }
+      else {
+        const grupos = []
+        for (const dup of dupPerf.rows) {
+          const regsQ = await db.query(`SELECT * FROM perforacion WHERE id = ANY($1) ORDER BY id`, [dup.ids])
+          grupos.push({
+            key:      `${dup.ddhid}_${dup.from_val}_${dup.to_val}`,
+            ddhid:    dup.ddhid,
+            from_val: dup.from_val,
+            to_val:   dup.to_val,
+            registros: regsQ.rows,
+          })
+        }
+        result.perforacion = grupos
+      }
+    } catch(e) { result.perforacion = [] }
+
     // Quick Log (campos diferentes)
     try {
       const dupQL = await db.query(`
