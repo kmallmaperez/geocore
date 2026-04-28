@@ -40,7 +40,6 @@ export default function Login() {
               onChange={e => setForm(p => ({ ...p, login: e.target.value }))}
               required
               autoComplete="username"
-            />
           </div>
           <div className="field">
             <label>Contraseña</label>
@@ -66,7 +65,6 @@ export default function Login() {
               )}
             </div>
 
-            />
           </div>
           {error && <div className="alert a-err">{error}</div>}
           <button type="submit" className="btn-acc-full" disabled={loading}>

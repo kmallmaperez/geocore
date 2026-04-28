@@ -50,7 +50,7 @@ function MaquinaChart({ equipo, ddhid, datos, completado, programado }) {
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: LEGEND_OPTS, tooltip: TOOLTIP_DIA },
+          plugins: { legend: { ...LEGEND_OPTS, position:'bottom' }, tooltip: TOOLTIP_DIA },
           scales: {
             x: { stacked:true, ticks:{ ...TICK, maxRotation:45 } },
             y: { stacked:true, ticks:TICK, title:{ display:true, text:'metros', color:'#64748b', font:{ size:10 } } }
@@ -78,32 +78,30 @@ function MaquinaChart({ equipo, ddhid, datos, completado, programado }) {
   }
 
   return (
-    <div className="ch-card">
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:8, gap:8 }}>
-        <div>
-          <div className="ch-title" style={{ margin:0 }}>
-            🔧 {equipo || 'Sin equipo asignado'}
-          </div>
-          <div style={{ fontSize:12, color:'var(--acc)', fontWeight:600, marginTop:2 }}>
-            {ddhid} {completado && <span style={{ fontSize:10, color:'var(--mut)', fontWeight:400 }}>— finalizado</span>}
-          </div>
-          {programado != null && (() => {
-            const ejec  = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
-            const diff  = parseFloat((ejec - programado).toFixed(2))
-            const color = diff >= 0 ? '#10b981' : '#ef4444'
-            const sign  = diff >= 0 ? '+' : ''
-            return (
-              <div style={{ fontSize:11, marginTop:3, display:'flex', gap:10 }}>
-                <span style={{ color:'var(--mut)' }}>Ejec: <strong style={{ color:'var(--txt)' }}>{ejec.toFixed(2)}m</strong></span>
-                <span style={{ color:'var(--mut)' }}>Prog: <strong style={{ color:'var(--txt)' }}>{programado}m</strong></span>
-                <span style={{ color, fontWeight:700 }}>{sign}{diff}m</span>
-              </div>
-            )
-          })()}
+    <div className="ch-card" style={{padding:'12px 12px 10px'}}>
+      {/* Título centrado */}
+      <div style={{ textAlign:'center', marginBottom:4 }}>
+        <div style={{ fontWeight:700, fontSize:13, color:'var(--txt)' }}>
+          🔧 {equipo || 'Sin equipo'}
         </div>
-        <button className="btn btn-grn btn-sm" onClick={downloadCSV} style={{ flexShrink:0 }}>⬇ CSV</button>
+        <div style={{ fontSize:12, color:completado?'var(--mut)':'var(--acc)', fontWeight:600 }}>
+          {ddhid}{completado && <span style={{ fontSize:10, fontWeight:400 }}> — finalizado</span>}
+        </div>
+        {programado != null && (() => {
+          const ejec  = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
+          const diff  = parseFloat((ejec - programado).toFixed(2))
+          const color = diff >= 0 ? '#10b981' : '#ef4444'
+          const sign  = diff >= 0 ? '+' : ''
+          return (
+            <div style={{ fontSize:11, marginTop:2, display:'flex', gap:10, justifyContent:'center' }}>
+              <span style={{ color:'var(--mut)' }}>Ejec: <strong style={{ color:'var(--txt)' }}>{ejec.toFixed(2)}m</strong></span>
+              <span style={{ color:'var(--mut)' }}>Prog: <strong style={{ color:'var(--txt)' }}>{programado}m</strong></span>
+              <span style={{ color, fontWeight:700 }}>{sign}{diff}m</span>
+            </div>
+          )
+        })()}
       </div>
-      <div style={{ height:200 }}><canvas ref={canvasRef} /></div>
+      <div style={{ height:180 }}><canvas ref={canvasRef} /></div>
     </div>
   )
 }
@@ -193,8 +191,8 @@ export default function Dashboard() {
       // Sondajes a mostrar en gráficos por máquina:
       // En proceso con equipo + 2 últimos completados
       // Mostrar todos los sondajes en proceso (con o sin equipo asignado)
-      const enProceso = sorted.filter(s => s.ESTADO !== 'Completado')
-      const completadosRecientes = d.completadosRecientes || []
+      const enProceso = sorted.filter(s => s.ESTADO !== 'Completado').slice(0, 5)
+      const completadosRecientes = (d.completadosRecientes || []).slice(0, 5)
       const paraGraficos = [
         ...enProceso.map(s => ({ ...s, completado: false })),
         ...completadosRecientes.map(s => ({ ...s, completado: true }))
@@ -386,14 +384,14 @@ export default function Dashboard() {
       const ideal_dia  = parseFloat((35 * d.maquinas).toFixed(2))
       acumDia       = parseFloat(d.real)
       acumIdealDia  = parseFloat((acumIdealDia + ideal_dia).toFixed(2))
-      diario.push(row([fmtFecha(d.fecha), ejec_dia, d.real, d.maquinas, ideal_dia, acumIdealDia]))
+      diario.push(row([fmtFecha(d.fecha), ejec_dia.toFixed(2), parseFloat(d.real).toFixed(2), d.maquinas, ideal_dia.toFixed(2), acumIdealDia.toFixed(2)]))
     })
 
     // Hoja 2: Programa semanal
     // acumReal ya viene calculado en serieProg desde el backend
     const prog = [
       row(['Fecha_Programa','Acum_Programado_m','Acum_Real_hasta_fecha_m','Acum_Ideal_m','Maquinas_Activas']),
-      ...serieProg.map(p => row([fmtFecha(p.fecha), p.acumProg, p.acumReal, p.acumIdeal, p.maquinas]))
+      ...serieProg.map(p => row([fmtFecha(p.fecha), parseFloat(p.acumProg).toFixed(2), parseFloat(p.acumReal).toFixed(2), parseFloat(p.acumIdeal).toFixed(2), p.maquinas]))
     ]
 
     // Unir en un solo CSV con separador de sección
@@ -447,7 +445,7 @@ export default function Dashboard() {
         {CARDS.map(c=>(
           <div key={c.lbl} className="s-card">
             <div className="s-lbl">{c.icon} {c.lbl}</div>
-            <div className="s-val" style={{ color:c.color }}>{c.val ?? '—'}</div>
+            <div className="s-val" style={{ color:c.color }}>{c.val != null ? parseFloat(c.val).toFixed(2) : '—'}</div>
             <div className="s-sub">metros totales</div>
             {c.ult && <div style={{ fontSize:10, color:'var(--mut)', marginTop:4 }}>📅 {fmtFecha(c.ult)}</div>}
           </div>
@@ -479,29 +477,41 @@ export default function Dashboard() {
       </div>
 
       {/* Gráficos por máquina */}
-      {maquinaGrupos.length > 0 && (
-        <div style={{ marginBottom:16 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:'var(--mut)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:10 }}>
-            🔧 Perforación por máquina
+      {maquinaGrupos.length > 0 && (() => {
+        const enProceso   = maquinaGrupos.filter(g => !g.completado)
+        const completados = maquinaGrupos.filter(g =>  g.completado)
+        const renderRow = (grupos, titulo, color) => grupos.length === 0 ? null : (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontWeight:700, fontSize:12, color, textTransform:'uppercase',
+              letterSpacing:'.06em', marginBottom:8, paddingLeft:2 }}>
+              {titulo}
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:`repeat(${grupos.length}, 1fr)`, gap:10 }}>
+              {grupos.map(g => (
+                <MaquinaChart
+                  key={`${g.equipo}||${g.ddhid}`}
+                  equipo={g.equipo} ddhid={g.ddhid}
+                  datos={g.datos} completado={g.completado} programado={g.programado}
+                />
+              ))}
+            </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))', gap:14 }}>
-            {maquinaGrupos.map(g => (
-              <MaquinaChart
-                key={`${g.equipo}||${g.ddhid}`}
-                equipo={g.equipo}
-                ddhid={g.ddhid}
-                datos={g.datos}
-                completado={g.completado}
-                programado={g.programado}
-              />
-            ))}
+        )
+        return (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontWeight:700, fontSize:13, color:'var(--mut)', textTransform:'uppercase',
+              letterSpacing:'.05em', marginBottom:10 }}>
+              🔧 Perforación por máquina
+            </div>
+            {renderRow(enProceso,   '⛏ En proceso de perforación',    '#10b981')}
+            {renderRow(completados, '✅ Culminados recientemente',      '#64748b')}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Gráfico metros por sondaje */}
       <div className="ch-card" style={{ marginBottom:16 }}>
-        <div className="ch-title">📊 Avance por Sondaje</div>
+        <div className="ch-title">📊 Avance por Sondaje — ordenado por brecha Perf vs Geológico</div>
         <div ref={sondajWrap} style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
           <div style={{ width:sondajCanvasW, height:280 }}>
             <canvas ref={crSondaj} width={sondajCanvasW} height={280} />
@@ -512,7 +522,7 @@ export default function Dashboard() {
       {/* Tabla resumen */}
       {porSondaje.length > 0 && (
         <div className="t-wrap">
-          <div className="t-top"><span className="t-title">📊 Resumen completo por sondaje</span><button className="btn btn-grn btn-sm" onClick={downloadResumenCSV}>⬇ CSV</button></div>
+          <div className="t-top"><span className="t-title">Resumen completo por sondaje</span><button className="btn btn-grn btn-sm" onClick={downloadResumenCSV}>⬇ CSV</button></div>
           <div className="ox">
             <table className="tbl">
               <thead>
@@ -524,13 +534,13 @@ export default function Dashboard() {
                     <td style={{ color:'var(--mut)', fontSize:11 }}>{i+1}</td>
                     <td><strong>{r.DDHID}</strong></td>
                     <td><span className={`bdg ${statCls(r.ESTADO)}`}>{r.ESTADO}</span></td>
-                    <td>{r.PROGRAMADO}</td>
-                    <td style={{ color:C.perf.bd  }}>{r.PERFORADO}</td>
-                    <td style={{ color:C.recep.bd }}>{r.RECEPCION}</td>
-                    <td style={{ color:C.recup.bd }}>{r.RECUPERADO}</td>
-                    <td style={{ color:C.foto.bd  }}>{r.FOTOGRAFIADO}</td>
-                    <td style={{ color:C.geot.bd  }}>{r.GEOTECNICO}</td>
-                    <td style={{ color:C.geol.bd  }}>{r.GEOLOGICO}</td>
+                    <td>{parseFloat(r.PROGRAMADO).toFixed(2)}</td>
+                    <td style={{ color:C.perf.bd  }}>{parseFloat(r.PERFORADO  ).toFixed(2)}</td>
+                    <td style={{ color:C.recep.bd }}>{parseFloat(r.RECEPCION  ).toFixed(2)}</td>
+                    <td style={{ color:C.recup.bd }}>{parseFloat(r.RECUPERADO ).toFixed(2)}</td>
+                    <td style={{ color:C.foto.bd  }}>{parseFloat(r.FOTOGRAFIADO).toFixed(2)}</td>
+                    <td style={{ color:C.geot.bd  }}>{parseFloat(r.GEOTECNICO ).toFixed(2)}</td>
+                    <td style={{ color:C.geol.bd  }}>{parseFloat(r.GEOLOGICO  ).toFixed(2)}</td>
                     <td>
                       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                         <div className="p-bar"><div className="p-fill" style={{ width:Math.min(r.PCT,100)+'%' }}/></div>
