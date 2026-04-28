@@ -32,9 +32,9 @@ function normEst(v) {
 }
 
 const COLORES = {
-  Completado:  '#4dd100',
-  'En Proceso':'#f76f00',
-  Plataforma:  '#0084ff',
+  Completado:  '#62f50b',
+  'En Proceso':'#ff6600',
+  Plataforma:  '#0099ff',
   Pendiente:   '#64748b',
 }
 const ESTADOS = ['Completado', 'En Proceso', 'Plataforma', 'Pendiente']
@@ -61,6 +61,11 @@ export default function MapaPage() {
   const [offset,     setOffset]     = useState({ x:0, y:0 })
   const [tooltip,    setTooltip]    = useState(null)
   const [mouseCoord, setMouseCoord] = useState(null)
+  // Multi-plano
+  const [mapSlots,   setMapSlots]   = useState([])   // array of slot configs
+  const [activeSlot, setActiveSlot] = useState(1)    // 1, 2 or 3
+  // Labels toggle
+  const [showLabels, setShowLabels] = useState(true)
   // filtro CSS: ocultar estados por clase
   const [ocultar,    setOcultar]    = useState({Completado:false,'En Proceso':false,Plataforma:false,Pendiente:false})
 
@@ -95,13 +100,17 @@ export default function MapaPage() {
       api.get('/tables/resumen/general'),
       api.get('/tables/resumen/plataforma').catch(() => ({ data: [] })),
     ]).then(([cfgRes, pgRes, resRes, platRes]) => {
-      const cfg = cfgRes.data || {}
-      if (cfg.imagen_b64 && cfg.imagen_tipo) {
-        setImgDataUrl(`data:${cfg.imagen_tipo};base64,${cfg.imagen_b64}`)
-        setImgNatW(cfg.imagen_w || 0)
-        setImgNatH(cfg.imagen_h || 0)
+      // Multi-slot: cfgRes.data is now an array of slots
+      const slots = Array.isArray(cfgRes.data) ? cfgRes.data : [cfgRes.data || {}]
+      setMapSlots(slots)
+      // Load active slot (default slot 1)
+      const active = slots[0] || {}
+      if (active.imagen_b64 && active.imagen_tipo) {
+        setImgDataUrl(`data:${active.imagen_tipo};base64,${active.imagen_b64}`)
+        setImgNatW(active.imagen_w || 0)
+        setImgNatH(active.imagen_h || 0)
       }
-      const pts = Array.isArray(cfg.puntos_ctrl) ? cfg.puntos_ctrl : []
+      const pts = Array.isArray(active.puntos_ctrl) ? active.puntos_ctrl : []
       setPuntosCtrl(pts)
       if (pts.length >= 3) setTransform(calcTransform(pts))
 
@@ -151,6 +160,24 @@ export default function MapaPage() {
       setSondajes(lista)
     }).catch(console.error).finally(() => setLoading(false))
   }, [])
+
+  // Cambiar plano activo
+  function switchSlot(slot) {
+    const s = mapSlots.find(x => x.slot === slot)
+    if (!s) return
+    setActiveSlot(slot)
+    if (s.imagen_b64 && s.imagen_tipo) {
+      setImgDataUrl(`data:${s.imagen_tipo};base64,${s.imagen_b64}`)
+      setImgNatW(s.imagen_w || 0); setImgNatH(s.imagen_h || 0)
+    } else {
+      setImgDataUrl(null); setImgNatW(0); setImgNatH(0)
+    }
+    setImgDispW(0); setImgDispH(0)
+    const pts = Array.isArray(s.puntos_ctrl) ? s.puntos_ctrl : []
+    setPuntosCtrl(pts)
+    setTransform(pts.length >= 3 ? calcTransform(pts) : null)
+    setModo('ver'); setPendPx(null); resetView(); setTooltip(null)
+  }
 
   // toggle filtro — solo cambia un booleano
   function toggleEstado(est) {
@@ -249,7 +276,8 @@ export default function MapaPage() {
     try {
       const dataUrl = await new Promise((res,rej) => { const r=new FileReader(); r.onload=ev=>res(ev.target.result); r.onerror=()=>rej(); r.readAsDataURL(file) })
       const {w,h}   = await new Promise((res,rej) => { const i=new Image(); i.onload=()=>res({w:i.naturalWidth,h:i.naturalHeight}); i.onerror=()=>rej(); i.src=dataUrl })
-      await api.post('/mapa/upload', { base64:dataUrl.split(',')[1], mimeType:file.type, width:w, height:h })
+      await api.post(`/mapa/upload/${activeSlot}`, { base64:dataUrl.split(',')[1], mimeType:file.type, width:w, height:h })
+      setMapSlots(prev => prev.map(s => s.slot===activeSlot ? {...s, imagen_b64:dataUrl.split(',')[1], imagen_tipo:file.type, imagen_w:w, imagen_h:h, puntos_ctrl:[]} : s))
       setImgDataUrl(dataUrl); setImgNatW(w); setImgNatH(h)
       setImgDispW(0); setImgDispH(0); setPuntosCtrl([]); setTransform(null); resetView()
       show('Plano subido ✓','ok')
@@ -258,7 +286,7 @@ export default function MapaPage() {
   }
   function handleEliminar() {
     if (!window.confirm('¿Eliminar el plano?')) return
-    api.delete('/mapa/imagen').then(() => {
+    api.delete(`/mapa/imagen/${activeSlot}`).then(() => {
       setImgDataUrl(null); setPuntosCtrl([]); setTransform(null); setModo('ver'); show('Plano eliminado','ok')
     }).catch(() => show('Error al eliminar','err'))
   }
@@ -282,7 +310,7 @@ export default function MapaPage() {
     setPuntosCtrl(nuevos)
     if (nuevos.length >= 3) setTransform(calcTransform(nuevos))
     setPendPx(null)
-    api.put('/mapa/puntos', { puntos:nuevos }).then(() => show(`Punto ${nuevos.length} guardado ✓`,'ok'))
+    api.put(`/mapa/puntos/${activeSlot}`, { puntos:nuevos }).then(() => show(`Punto ${nuevos.length} guardado ✓`,'ok'))
   }
   function eliminarPunto(i) {
     const nuevos = puntosCtrl.filter((_,j)=>j!==i)
@@ -370,6 +398,26 @@ export default function MapaPage() {
         )}
       </div>
 
+      {/* Selector de planos */}
+      {mapSlots.length > 0 && (
+        <div style={{display:'flex',gap:6,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
+          <span style={{fontSize:12,color:'var(--mut)',marginRight:4}}>📂 Plano:</span>
+          {mapSlots.map(s => (
+            <button key={s.slot} onClick={()=>switchSlot(s.slot)}
+              className={activeSlot===s.slot ? 'btn btn-acc btn-sm' : 'btn btn-out btn-sm'}
+              style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:s.imagen_b64?'var(--grn)':'var(--mut)',display:'inline-block'}}/>
+              {s.nombre || `Plano ${s.slot}`}
+            </button>
+          ))}
+          <button onClick={()=>setShowLabels(p=>!p)}
+            className={showLabels?'btn btn-out btn-sm':'btn btn-out btn-sm'}
+            style={{marginLeft:'auto',fontSize:11,opacity:showLabels?1:.5}}>
+            🏷 {showLabels?'Ocultar':'Mostrar'} nombres
+          </button>
+        </div>
+      )}
+
       {/* Sin imagen */}
       {!tieneImagen && (
         <div className="ch-card" style={{textAlign:'center',padding:60,color:'var(--mut)'}}>
@@ -392,7 +440,7 @@ export default function MapaPage() {
             {puntosCtrl.length>0 && (
               <button className="btn btn-red btn-sm" onClick={() => {
                 setPuntosCtrl([]); setTransform(null)
-                api.put('/mapa/puntos',{puntos:[]}); show('Puntos eliminados','ok')
+                api.put(`/mapa/puntos/${activeSlot}`,{puntos:[]}); show('Puntos eliminados','ok')
               }}>🗑 Limpiar</button>
             )}
           </div>
@@ -499,22 +547,42 @@ export default function MapaPage() {
               const col = COLORES[s.ESTADO]
               const r   = (s.ESTADO==='En Proceso' ? 9 : s.ESTADO==='Plataforma' ? 7 : 7) / zoom
               return (
-                <div key={s.DDHID} data-dot="1" data-ddhid={s.DDHID}
-                  style={{position:'absolute',left:pos.x-r,top:pos.y-r,
-                    width:r*2,height:r*2,
-                    borderRadius: s.ESTADO==='Plataforma' ? '2px' : '50%',
-                    background:col,border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
-                    cursor:'pointer',zIndex:5,
-                    display: ocultar[s.ESTADO] ? 'none' : 'block',
-                    transform: s.ESTADO==='Plataforma' ? 'rotate(45deg)' : undefined,
-                    boxShadow:s.ESTADO==='En Proceso'?`0 0 ${8/zoom}px ${col}`:s.ESTADO==='Plataforma'?`0 0 ${6/zoom}px ${col}`:s.ESTADO==='Completado'?`0 0 ${6/zoom}px ${col}`:`0 1px ${3/zoom}px rgba(0,0,0,.3)`,
-                  }}
-                  onMouseEnter={()=>{
-                    const {zoom:z,offset:o}={zoom:zoomRef.current,offset:offsetRef.current}
-                    setTooltip({s,cx:pos.x*z+o.x,cy:pos.y*z+o.y})
-                  }}
-                  onMouseLeave={()=>setTooltip(null)}
-                />
+                <React.Fragment key={s.DDHID}>
+                  <div data-dot="1" data-ddhid={s.DDHID}
+                    style={{position:'absolute',left:pos.x-r,top:pos.y-r,
+                      display: ocultar[s.ESTADO] ? 'none' : 'block',
+                      width:r*2,height:r*2,
+                      borderRadius: s.ESTADO==='Plataforma' ? '2px' : '50%',
+                      background:col,border:`${1.5/zoom}px solid rgba(255,255,255,.8)`,
+                      cursor:'pointer',zIndex:5,
+                      transform: s.ESTADO==='Plataforma' ? 'rotate(45deg)' : undefined,
+                      boxShadow:s.ESTADO==='En Proceso'?`0 0 ${8/zoom}px ${col}`:s.ESTADO==='Plataforma'?`0 0 ${6/zoom}px ${col}`:s.ESTADO==='Completado'?`0 0 ${6/zoom}px ${col}`:`0 1px ${3/zoom}px rgba(0,0,0,.3)`,
+                    }}
+                    onMouseEnter={()=>{
+                      const {zoom:z,offset:o}={zoom:zoomRef.current,offset:offsetRef.current}
+                      setTooltip({s,cx:pos.x*z+o.x,cy:pos.y*z+o.y})
+                    }}
+                    onMouseLeave={()=>setTooltip(null)}
+                  />
+                  {showLabels && !ocultar[s.ESTADO] && (
+                    <div style={{
+                      position:'absolute',
+                      left: pos.x + r + 2/zoom,
+                      top:  pos.y - 6/zoom,
+                      fontSize: Math.min(Math.max(9/zoom, 6), 13) + 'px',
+                      color: col,
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                      zIndex: 6,
+                      textShadow: '0 0 3px rgba(0,0,0,.8), 0 0 6px rgba(0,0,0,.6)',
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1,
+                    }}>
+                      {s._isDDHID ? s.DDHID : s.PLATAFORMA}
+                    </div>
+                  )}
+                </React.Fragment>
               )
             })}
           </div>

@@ -6,6 +6,8 @@ export default function Login() {
   const { login } = useAuth()
   const navigate  = useNavigate()
   const [form, setForm]       = useState({ login: '', password: '' })
+  const [capsLock,  setCapsLock]  = useState(false)
+  const [showPass,  setShowPass]  = useState(false)
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -43,12 +45,27 @@ export default function Login() {
           <div className="field">
             <label>Contraseña</label>
             <input
-              type="password"
+              type={showPass ? 'text' : 'password'}
               placeholder="••••••••"
               value={form.password}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+              onKeyDown={e => setCapsLock(e.getModifierState?.('CapsLock') || false)}
+              onKeyUp={e => setCapsLock(e.getModifierState?.('CapsLock') || false)}
               required
-              autoComplete="current-password"
+              autoComplete="current-password" />
+            {/* Show/hide password + caps warning */}
+            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
+              <button type="button" onClick={()=>setShowPass(p=>!p)}
+                style={{background:'none',border:'none',cursor:'pointer',color:'var(--mut)',fontSize:12,padding:0}}>
+                {showPass ? '🙈 Ocultar' : '👁 Mostrar'}
+              </button>
+              {capsLock && (
+                <span style={{fontSize:11,color:'#f59e0b',fontWeight:600}}>
+                  ⚠ Bloq Mayús activo
+                </span>
+              )}
+            </div>
+
             />
           </div>
           {error && <div className="alert a-err">{error}</div>}
