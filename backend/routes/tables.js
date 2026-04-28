@@ -495,11 +495,11 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       else serieProg.splice(insertIdx, 0, puntoExtra)
     }
 
-    // 2 últimos sondajes completados (por FECHA_FIN desc)
+    // 5 últimos sondajes completados (por FECHA_FIN desc)
     const completados = porSondaje
-      .filter(s => s.ESTADO === 'Completado' && s.FECHA_FIN)
+      .filter(s => s.ESTADO === 'Completado' && s.EQUIPO)
       .sort((a, b) => (b.FECHA_FIN||'').localeCompare(a.FECHA_FIN||''))
-      .slice(0, 2)
+      .slice(0, 5)
 
     res.json({
       porSondaje, totales, ultimasFechas,

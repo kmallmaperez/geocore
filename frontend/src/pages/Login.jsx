@@ -39,7 +39,7 @@ export default function Login() {
               value={form.login}
               onChange={e => setForm(p => ({ ...p, login: e.target.value }))}
               required
-              autoComplete="username"
+              autoComplete="username" />
           </div>
           <div className="field">
             <label>Contraseña</label>
