@@ -73,9 +73,10 @@ function toRow(dbRow) {
 // Devuelve los DDHID activos (no completados) filtrados por profundidad alcanzada en esa tabla.
 // Si max(To) >= PROGRAMADO el sondaje ya no aparece en el dropdown de esa tabla.
 router.get('/ddhids/:tkey', authMiddleware, async (req, res) => {
-  const { tkey } = req.params
+  const { tkey }        = req.params
+  const tipo_proyecto   = req.query.tipo_proyecto
 
-  // Campo "To" por tabla
+  // Campo "To" por tabla (null = sin filtro de profundidad → todos los sondajes aparecen)
   const TO_FIELD = {
     perforacion:  null,          // especial: max(TO_Dia, To_Noche)
     recepcion:    '"TO"',
@@ -83,18 +84,23 @@ router.get('/ddhids/:tkey', authMiddleware, async (req, res) => {
     fotografia:   '"To"',
     l_geotecnico: '"To"',
     l_geologico:  '"To"',
-    // muestreo: no filtrar por profundidad — las muestras pueden tomarse en cualquier momento
-    corte:        '"A"',
+    // corte: sin filtro de profundidad — el corte se hace por secciones y puede continuar
+    // muestreo: sin filtro de profundidad
   }
 
   try {
-    // 1. Todos los sondajes con su PROGRAMADO (no completados)
+    // 1. Sondajes con su PROGRAMADO, filtrados por tipo_proyecto si se especifica
+    const progWhere = (tipo_proyecto && tipo_proyecto !== 'Ambos')
+      ? `WHERE pg."DDHID" IS NOT NULL AND pg."DDHID" <> '' AND COALESCE(pg."tipo_proyecto", 'Mina') = $1`
+      : `WHERE pg."DDHID" IS NOT NULL AND pg."DDHID" <> ''`
+    const progParams = (tipo_proyecto && tipo_proyecto !== 'Ambos') ? [tipo_proyecto] : []
+
     const progRes = await db.query(`
       SELECT pg."DDHID", COALESCE(pg."LENGTH", 0) AS programado
       FROM programa_general pg
-      WHERE pg."DDHID" IS NOT NULL AND pg."DDHID" <> ''
+      ${progWhere}
       ORDER BY pg."DDHID"
-    `)
+    `, progParams)
 
     // 2. Calcular profundidad máxima registrada en la tabla para cada DDHID
     let alcanzado = {}   // { DDHID: maxTo }

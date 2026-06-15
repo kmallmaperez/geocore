@@ -43,6 +43,7 @@ button { cursor: pointer; }
 /* ── LAYOUT ── */
 .layout       { display: flex; min-height: 100vh; }
 .main-content { margin-left: var(--sidebar-w); flex: 1; padding: 28px; min-width: 0; }
+.proyecto-bar { margin-left: var(--sidebar-w); display: flex; align-items: center; gap: 8px; padding: 8px 20px; background: var(--sur); border-bottom: 1px solid var(--brd); flex-wrap: wrap; }
 
 /* ── SIDEBAR ── */
 .sidebar { width: var(--sidebar-w); background: var(--sur); border-right: 1px solid var(--brd); display: flex; flex-direction: column; padding: 20px 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; z-index: 100; transition: transform .25s ease; }
@@ -193,6 +194,10 @@ button { cursor: pointer; }
 
   /* Contenido ocupa toda la pantalla */
   .main-content { margin-left: 0; padding: 60px 12px 24px; }
+
+  /* Selector de proyecto: horizontal compacto en mobile */
+  .proyecto-bar { margin-left: 0; flex-wrap: nowrap; padding: 6px 12px; gap: 6px; overflow-x: auto; }
+  .proyecto-bar .proy-label { display: none; }
 
   /* Tipografía */
   .page-title { font-size: 18px; }

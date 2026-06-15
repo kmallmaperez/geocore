@@ -53,8 +53,8 @@ export default function TablePage() {
       ? `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}`
       : ''
     api.get(`/tables/${tkey}${qp}`).then(r => setRows(r.data)).finally(() => setLoading(false))
-    // Sondajes disponibles: filtrados por profundidad alcanzada en esta tabla
-    api.get(`/tables/ddhids/${tkey}`).then(r => setDdhids(r.data || []))
+    // Sondajes disponibles: filtrados por profundidad alcanzada y por tipo_proyecto activo
+    api.get(`/tables/ddhids/${tkey}${qp}`).then(r => setDdhids(r.data || []))
     // Cargar datos de plataforma si estamos en programa_general
     if (tkey === 'programa_general') {
       api.get('/tables/resumen/plataforma').then(r => {

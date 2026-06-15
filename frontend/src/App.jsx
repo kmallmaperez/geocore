@@ -26,27 +26,22 @@ function ProyectoSelector() {
   ]
 
   return (
-    <div style={{
-      marginLeft: 'var(--sidebar-w)',
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 20px', background: 'var(--sur)',
-      borderBottom: '1px solid var(--brd)', flexWrap: 'wrap',
-    }}>
-      <span style={{ fontSize: 11, color: 'var(--mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+    <div className="proyecto-bar">
+      <span style={{ fontSize: 11, color: 'var(--mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
         Proyecto:
       </span>
       {OPTS.map(o => (
         <button
           key={o.id}
           className={`btn btn-sm ${proyectoActivo === o.id ? 'btn-acc' : 'btn-out'}`}
-          style={{ fontSize: 12 }}
+          style={{ fontSize: 12, whiteSpace: 'nowrap' }}
           onClick={() => setProyectoActivo(o.id)}
         >
           {o.lbl}
         </button>
       ))}
       {proyectoActivo !== 'Ambos' && (
-        <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--mut)' }}>
+        <span className="proy-label" style={{ marginLeft: 4, fontSize: 11, color: 'var(--mut)' }}>
           — mostrando solo <strong style={{ color: 'var(--acc)' }}>{proyectoActivo}</strong>
         </span>
       )}
