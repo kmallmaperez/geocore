@@ -7,6 +7,12 @@ import { useAuth } from '../context/AuthContext'
 import { statCls, fmtFecha, today } from '../utils/tableDefs'
 import api from '../utils/api'
 
+// Helper: convierte proyectoActivo en query param
+function qpTipo(proyectoActivo) {
+  if (!proyectoActivo || proyectoActivo === 'Ambos') return ''
+  return `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}`
+}
+
 Chart.register(BarElement, BarController, LineElement, LineController, PointElement,
   CategoryScale, LinearScale, Tooltip, Legend, Filler)
 
@@ -157,7 +163,7 @@ function DiaChart({ perfDia }) {
 
 // ── Dashboard principal ──────────────────────────────────────────
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, proyectoActivo } = useAuth()
   const [stats,        setStats]        = useState({ perforado:0, recepcion:0, recuperado:0, fotografiado:0, geotecnico:0, geologico:0 })
   const [ultFecha,     setUltFecha]     = useState({ perf:'', recup:'', foto:'', geot:'', geol:'' })
   const [porSondaje,   setPorSondaje]   = useState([])
@@ -172,9 +178,9 @@ export default function Dashboard() {
   const crSondaj = useRef(null); const ciSondaj = useRef(null)
   const sondajWrap = useRef(null)
 
-  // ── Carga principal ─────────────────────────────────────────────
+  // ── Carga principal — se re-ejecuta cuando cambia el proyecto activo ──
   useEffect(() => {
-    api.get('/tables/dashboard/stats').then(r => {
+    api.get(`/tables/dashboard/stats${qpTipo(proyectoActivo)}`).then(r => {
       const d = r.data
       setStats(d.totales)
       setUltFecha(d.ultimasFechas || { perf:'', recup:'', foto:'', geot:'', geol:'' })
@@ -198,9 +204,17 @@ export default function Dashboard() {
         ...completadosRecientes.map(s => ({ ...s, completado: true }))
       ]
 
-      // Cargar perforación y agrupar por equipo+sondaje
+      // DDHIDs del proyecto activo (para filtrar perforación en el frontend)
+      const ddhidsProyecto = new Set(sorted.map(s => s.DDHID).filter(Boolean))
+
+      // Una sola carga de perforación — filtrada por proyecto en memoria
       api.get('/tables/perforacion').then(rp => {
-        const perf = rp.data
+        const allPerf = rp.data
+        const perf = (proyectoActivo && proyectoActivo !== 'Ambos' && ddhidsProyecto.size > 0)
+          ? allPerf.filter(p => ddhidsProyecto.has(p.DDHID))
+          : allPerf
+
+        // ── Gráficos por máquina ──────────────────────────────────
         const grupos = paraGraficos.map(s => {
           const rows = perf.filter(p => p.DDHID === s.DDHID)
           const byDate = {}
@@ -215,11 +229,9 @@ export default function Dashboard() {
           })
           let datos = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))
 
-          // 1. Quitar ceros iniciales (antes del primer día con metro > 0)
           const primerActivo = datos.findIndex(([,v]) => v.dia + v.noche > 0)
           if (primerActivo > 0) datos = datos.slice(primerActivo)
 
-          // 2. Quitar ceros finales si el sondaje alcanzó el metraje programado
           const totalPerf = datos.reduce((s,[,v]) => s + v.dia + v.noche, 0)
           const prog = s.PROGRAMADO ?? null
           if (prog !== null && totalPerf >= prog) {
@@ -233,24 +245,22 @@ export default function Dashboard() {
           return { equipo:s.EQUIPO, ddhid:s.DDHID, datos, completado:s.completado, programado:s.PROGRAMADO ?? null }
         }).filter(g => g.datos.length > 0)
         setMaquinaGrupos(grupos)
+
+        // ── Avance diario (mismo set filtrado) ────────────────────
+        const byDate = {}
+        perf.forEach(x => {
+          const raw = x.Fecha ? String(x.Fecha) : null
+          if (!raw) return
+          const f = raw.includes('T') ? raw.slice(0,10) : raw.slice(0,10)
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return
+          if (!byDate[f]) byDate[f] = { dia:0, noche:0 }
+          byDate[f].dia   += parseFloat(x.Turno_Dia)   || 0
+          byDate[f].noche += parseFloat(x.Turno_Noche) || 0
+        })
+        setPerfDia(Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)))
       }).catch(() => {})
     }).catch(() => {})
-
-    // Avance diario por turno — últimos 14 días
-    api.get('/tables/perforacion').then(r => {
-      const byDate = {}
-      r.data.forEach(x => {
-        const raw = x.Fecha ? String(x.Fecha) : null
-        if (!raw) return
-        const f = raw.includes('T') ? raw.slice(0,10) : raw.slice(0,10)
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return
-        if (!byDate[f]) byDate[f] = { dia:0, noche:0 }
-        byDate[f].dia   += parseFloat(x.Turno_Dia)   || 0
-        byDate[f].noche += parseFloat(x.Turno_Noche) || 0
-      })
-      setPerfDia(Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b))) // todos los días
-    }).catch(() => {})
-  }, [])
+  }, [proyectoActivo])
 
   // ── Gráfico Programado vs Ejecutado (+ toggle Ideal) ──────────
   useEffect(() => {
@@ -437,7 +447,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="page-title">Dashboard</div>
+      <div className="page-title">Dashboard{proyectoActivo && proyectoActivo !== 'Ambos' ? ` — ${proyectoActivo}` : ''}</div>
       <div className="page-desc">Bienvenido, {user.name} — {fmtFecha(today())}</div>
 
       {/* Cards */}

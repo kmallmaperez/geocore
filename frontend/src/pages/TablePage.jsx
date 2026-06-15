@@ -30,7 +30,7 @@ function SortIcon({ col, sortCol, sortDir }) {
 
 export default function TablePage() {
   const { tkey }        = useParams()
-  const { user }        = useAuth()
+  const { user, proyectoActivo } = useAuth()
   const { toast, show } = useToast()
   const def             = DEFS[tkey]
 
@@ -49,7 +49,10 @@ export default function TablePage() {
 
   useEffect(() => {
     setRows([]); setLoading(true); setSearch(''); setFilterD(''); setSortCol(null)
-    api.get(`/tables/${tkey}`).then(r => setRows(r.data)).finally(() => setLoading(false))
+    const qp = (proyectoActivo && proyectoActivo !== 'Ambos')
+      ? `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}`
+      : ''
+    api.get(`/tables/${tkey}${qp}`).then(r => setRows(r.data)).finally(() => setLoading(false))
     // Sondajes disponibles: filtrados por profundidad alcanzada en esta tabla
     api.get(`/tables/ddhids/${tkey}`).then(r => setDdhids(r.data || []))
     // Cargar datos de plataforma si estamos en programa_general
@@ -63,7 +66,7 @@ export default function TablePage() {
         setPlatMap(map)
       }).catch(() => {})
     }
-  }, [tkey])
+  }, [tkey, proyectoActivo])
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -102,6 +105,25 @@ export default function TablePage() {
     setRows(r.data)
     show(`${imported} filas importadas ✓`, 'ok')
     setImporting(false)
+  }
+
+  function downloadCSV() {
+    const cols = def.cols
+    const header = cols.join(',')
+    const lines = sorted.map(row =>
+      cols.map(c => {
+        const v = row[c] ?? ''
+        const s = String(v)
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"` : s
+      }).join(',')
+    )
+    const csv = '﻿' + [header, ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = `${tkey}.csv`; a.click()
+    URL.revokeObjectURL(url)
   }
 
   // Filtrar
@@ -167,6 +189,13 @@ export default function TablePage() {
             style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
             onClick={() => setImporting(true)}>
             📥 Importar CSV
+          </button>
+        )}
+        {tkey === 'muestras_densidad' && sorted.length > 0 && (
+          <button className="btn btn-grn"
+            style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
+            onClick={downloadCSV}>
+            ⬇️ Descargar CSV
           </button>
         )}
       </div>

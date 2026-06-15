@@ -277,7 +277,7 @@ function ImportModal({ onClose, onImported }) {
 // ── Componente principal ──────────────────────────────────────────
 export default function QuickLogPage() {
   const { toast, show } = useToast()
-  const { user }        = useAuth()
+  const { user, proyectoActivo } = useAuth()
   const navigate        = useNavigate()
   const canEdit = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR' ||
                   (Array.isArray(user?.tables) && (user.tables.includes('all') || user.tables.includes('quicklog')))
@@ -301,12 +301,15 @@ export default function QuickLogPage() {
   useEffect(() => { rowsRef.current  = rows  }, [rows])
   useEffect(() => { ddhidRef.current = ddhid }, [ddhid])
 
-  // ── Cargar sondajes ─────────────────────────────────────────────
+  // ── Cargar sondajes (filtrados por proyecto activo) ─────────────
   useEffect(() => {
-    api.get('/tables/programa_general').then(r => {
+    const qp = (proyectoActivo && proyectoActivo !== 'Ambos')
+      ? `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}`
+      : ''
+    api.get(`/tables/programa_general${qp}`).then(r => {
       setDdhids((r.data||[]).map(x=>x.DDHID||x.ddhid).filter(x=>x&&String(x).trim()!=='').sort())
     })
-  }, [])
+  }, [proyectoActivo])
 
   // ── Cargar filas al cambiar sondaje ─────────────────────────────
   function loadDdhid(id) {

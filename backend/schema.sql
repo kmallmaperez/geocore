@@ -2,27 +2,31 @@
 
 -- Usuarios
 CREATE TABLE IF NOT EXISTS users (
-  id         SERIAL PRIMARY KEY,
-  name       TEXT NOT NULL,
-  email      TEXT UNIQUE NOT NULL,
-  password   TEXT NOT NULL,
-  role       TEXT NOT NULL DEFAULT 'USER',
-  tables     TEXT[] DEFAULT '{}',
-  active     BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  email        TEXT UNIQUE NOT NULL,
+  password     TEXT NOT NULL,
+  role         TEXT NOT NULL DEFAULT 'USER',
+  tables       TEXT[] DEFAULT '{}',
+  active       BOOLEAN DEFAULT true,
+  tipo_acceso  TEXT DEFAULT 'Ambos',     -- 'Mina' | 'Exploraciones' | 'Ambos'
+  created_at   TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migración aplicada en runtime por users.js: ALTER TABLE users ADD COLUMN IF NOT EXISTS tipo_acceso TEXT DEFAULT 'Ambos'
 
 -- Programa General
 CREATE TABLE IF NOT EXISTS programa_general (
-  id         SERIAL PRIMARY KEY,
-  "PLATAFORMA" TEXT,
-  "DDHID"    TEXT,
-  "ESTE"     NUMERIC,
-  "NORTE"    NUMERIC,
-  "ELEV"     NUMERIC,
-  "LENGTH"   NUMERIC,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  id              SERIAL PRIMARY KEY,
+  "PLATAFORMA"    TEXT,
+  "DDHID"         TEXT,
+  "ESTE"          NUMERIC,
+  "NORTE"         NUMERIC,
+  "ELEV"          NUMERIC,
+  "LENGTH"        NUMERIC,
+  "tipo_proyecto" TEXT DEFAULT 'Mina',   -- 'Mina' | 'Exploraciones'
+  created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migración aplicada en runtime por tables.js: ALTER TABLE programa_general ADD COLUMN IF NOT EXISTS "tipo_proyecto" TEXT DEFAULT 'Mina'
 
 -- Perforación
 CREATE TABLE IF NOT EXISTS perforacion (
@@ -181,6 +185,18 @@ CREATE TABLE IF NOT EXISTS estado_overrides (
   ddhid  TEXT PRIMARY KEY,
   estado TEXT NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Programa de perforación (plan semanal por tipo de proyecto)
+-- Creado y sembrado automáticamente por routes/programaPerf.js al arrancar el servidor
+CREATE TABLE IF NOT EXISTS programa_perforacion (
+  id            SERIAL PRIMARY KEY,
+  tipo_proyecto TEXT NOT NULL DEFAULT 'Mina',   -- 'Mina' | 'Exploraciones'
+  fecha         DATE NOT NULL,
+  acum_prog     NUMERIC NOT NULL,               -- metros acumulados programados a esa fecha
+  descripcion   TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(tipo_proyecto, fecha)
 );
 
 -- ── USUARIO ADMIN INICIAL ─────────────────────────────────────────

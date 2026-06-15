@@ -4,17 +4,22 @@ import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
-// Tablas regulares + quicklog como opción especial
+// Tablas regulares + módulos especiales asignables
 const ALL_TABLE_KEYS = Object.keys(DEFS)
-const TABLE_LABELS = { ...Object.fromEntries(Object.entries(DEFS).map(([k,v])=>[k,v.label])), quicklog: '📋 Quick Log' }
+const TABLE_LABELS = {
+  ...Object.fromEntries(Object.entries(DEFS).map(([k,v])=>[k,v.label])),
+  quicklog:        '📋 Quick Log',
+  control_calidad: '✅ Control de Calidad',
+}
 
 function UserModal({ user, onClose, onSave }) {
   const [form, setForm] = useState({
-    name:     user?.name     || '',
-    email:    user?.email    || '',
-    password: '',
-    role:     user?.role     || 'USER',
-    tables:   user?.tables   || [],
+    name:         user?.name         || '',
+    email:        user?.email        || '',
+    password:     '',
+    role:         user?.role         || 'USER',
+    tables:       user?.tables       || [],
+    tipo_acceso:  user?.tipo_acceso  || 'Ambos',
   })
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })) }
@@ -28,7 +33,7 @@ function UserModal({ user, onClose, onSave }) {
 
   const isAllAccess = form.role === 'ADMIN' || form.role === 'SUPERVISOR'
   const isViewer    = form.role === 'VIEWER'
-  const assignableKeys = [...ALL_TABLE_KEYS, 'quicklog']
+  const assignableKeys = [...ALL_TABLE_KEYS, 'quicklog', 'control_calidad']
 
   return (
     <div className="m-bg" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -47,6 +52,14 @@ function UserModal({ user, onClose, onSave }) {
               <option value="VIEWER">VIEWER</option>
             </select>
           </div>
+          <div className="fg">
+            <label>Acceso a Proyecto</label>
+            <select value={form.tipo_acceso} onChange={e=>set('tipo_acceso',e.target.value)}>
+              <option value="Ambos">🔀 Ambos (Mina + Exploraciones)</option>
+              <option value="Mina">⛏ Solo Mina</option>
+              <option value="Exploraciones">🔭 Solo Exploraciones</option>
+            </select>
+          </div>
         </div>
 
         {isViewer && (
@@ -60,21 +73,23 @@ function UserModal({ user, onClose, onSave }) {
               Tablas Asignadas <span style={{fontWeight:400,textTransform:'none',fontSize:11}}>(el usuario solo puede escribir en las seleccionadas)</span>
             </label>
 
-            {/* Quick Log primero, destacado */}
+            {/* Módulos especiales */}
             <div style={{marginBottom:10,paddingBottom:10,borderBottom:'1px solid var(--brd)'}}>
               <span style={{fontSize:11,color:'var(--mut)',display:'block',marginBottom:6}}>Módulos especiales</span>
-              <span
-                className={`chip ${form.tables.includes('quicklog') ? 'on' : ''}`}
-                onClick={()=>togTable('quicklog')}
-                style={{fontSize:13}}>
-                📋 Quick Log
-              </span>
+              {['quicklog','control_calidad'].map(k => (
+                <span key={k}
+                  className={`chip ${form.tables.includes(k) ? 'on' : ''}`}
+                  onClick={()=>togTable(k)}
+                  style={{fontSize:13}}>
+                  {TABLE_LABELS[k]}
+                </span>
+              ))}
             </div>
 
             {/* Tablas regulares */}
             <div>
               <span style={{fontSize:11,color:'var(--mut)',display:'block',marginBottom:6}}>Tablas de registro</span>
-              {assignableKeys.filter(k=>k!=='quicklog').map(k => (
+              {assignableKeys.filter(k => k!=='quicklog' && k!=='control_calidad').map(k => (
                 <span key={k} className={`chip ${form.tables.includes(k)?'on':''}`} onClick={()=>togTable(k)}>
                   {TABLE_LABELS[k]}
                 </span>
@@ -157,7 +172,7 @@ export default function UsersPage() {
         <div className="ox">
           <table className="tbl">
             <thead>
-              <tr>{['Nombre','Email','Rol','Permisos de escritura','Estado','Acc.'].map(c=><th key={c}>{c}</th>)}</tr>
+              <tr>{['Nombre','Email','Rol','Proyecto','Permisos de escritura','Estado','Acc.'].map(c=><th key={c}>{c}</th>)}</tr>
             </thead>
             <tbody>
               {users.map(u => (
@@ -170,6 +185,11 @@ export default function UsersPage() {
                   </td>
                   <td style={{color:'var(--mut)'}}>{u.email}</td>
                   <td><span className={`bdg ${roleCls(u.role)}`}>{u.role}</span></td>
+                  <td>
+                    <span style={{fontSize:12, color:'var(--txt)'}}>
+                      {u.tipo_acceso === 'Mina' ? '⛏ Mina' : u.tipo_acceso === 'Exploraciones' ? '🔭 Explor.' : '🔀 Ambos'}
+                    </span>
+                  </td>
                   <td style={{maxWidth:320}}>{permisoLabel(u)}</td>
                   <td><span className={`bdg ${u.active?'b-act':'b-ina'}`}>{u.active?'Activo':'Inactivo'}</span></td>
                   <td>

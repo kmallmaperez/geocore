@@ -1,13 +1,14 @@
 // ── VALIDACIONES SERVER-SIDE ─────────────────────────────────────
 
 const FROM_TO_COLS = {
-  recepcion:    ['FROM',  'TO'],
-  recuperacion: ['From',  'To'],
-  fotografia:   ['From',  'To'],
-  l_geotecnico: ['From',  'To'],
-  l_geologico:  ['From',  'To'],
-  muestreo:     ['DE',    'HASTA'],
-  corte:        ['DE',    'A'],
+  recepcion:         ['FROM',         'TO'],
+  recuperacion:      ['From',         'To'],
+  fotografia:        ['From',         'To'],
+  l_geotecnico:      ['From',         'To'],
+  l_geologico:       ['From',         'To'],
+  muestreo:          ['DE',           'HASTA'],
+  corte:             ['DE',           'A'],
+  muestras_densidad: ['From_Muestra', 'To_Muestra'],
 }
 
 const AVANCE_TABLES = ['recuperacion','fotografia','l_geotecnico','l_geologico','corte']
@@ -22,9 +23,10 @@ const REQUIRED_FIELDS = {
   l_geologico:      ['Fecha','DDHID'],
   muestreo:         ['Fecha','DDHID','DE','HASTA','MUESTRAS'],
   corte:            ['Fecha','DDHID','CAJAS','MAQUINAS'],
-  envios:           ['Fecha','Envio_N','Total_muestras'],
-  batch:            ['Envio','Batch','Sondaje'],
-  tormentas:        ['Fecha','Desde','Hasta'],
+  envios:            ['Fecha','Envio_N','Total_muestras'],
+  batch:             ['Envio','Batch','Sondaje'],
+  tormentas:         ['Fecha','Desde','Hasta'],
+  muestras_densidad: ['Fecha','DDHID','From_Muestra','To_Muestra'],
 }
 
 function hasValue(v) {

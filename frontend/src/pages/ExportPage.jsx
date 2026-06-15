@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import api from '../utils/api'
 import Toast, { useToast } from '../components/Toast'
+import { useAuth } from '../context/AuthContext'
 
 const TABLA_LABELS = {
   resumen_general:  'Resumen General',
@@ -173,28 +174,43 @@ function formatValCSV(col, v) {
   return String(v)
 }
 
+async function downloadExcel(tipo_proyecto, show) {
+  const token   = localStorage.getItem('token') || ''
+  const baseURL = import.meta.env.VITE_API_URL || '/api'
+  const qp      = tipo_proyecto ? `?tipo_proyecto=${encodeURIComponent(tipo_proyecto)}` : ''
+  const resp    = await fetch(`${baseURL}/excel/download${qp}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!resp.ok) throw new Error(await resp.text())
+  const blob     = await resp.blob()
+  const suffix   = tipo_proyecto ? `_${tipo_proyecto}` : ''
+  const a        = document.createElement('a')
+  a.href         = URL.createObjectURL(blob)
+  a.download     = `GeoCore${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export default function ExportPage() {
   const { toast, show } = useToast()
+  const { proyectoActivo } = useAuth()
   const [loading,       setLoading]       = useState(false)
   const [loadingTable,  setLoadingTable]  = useState(null)
 
   async function exportAll() {
     setLoading(true)
     try {
-      // El backend genera el .xlsx con ExcelJS (tablas nativas + zebra + formatos reales)
-      const token   = localStorage.getItem('token') || ''
-      const baseURL = import.meta.env.VITE_API_URL || '/api'
-      const resp    = await fetch(`${baseURL}/excel/download`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (!resp.ok) throw new Error(await resp.text())
-      const blob = await resp.blob()
-      const a    = document.createElement('a')
-      a.href     = URL.createObjectURL(blob)
-      a.download = `GeoCore_${new Date().toISOString().slice(0, 10)}.xlsx`
-      a.click()
-      URL.revokeObjectURL(a.href)
-      show('Excel exportado con formato de tabla ✓', 'ok')
+      if (proyectoActivo === 'Ambos') {
+        // Descargar dos archivos separados
+        await downloadExcel('Mina', show)
+        // Pequeña pausa para que el navegador no bloquee la segunda descarga
+        await new Promise(r => setTimeout(r, 800))
+        await downloadExcel('Exploraciones', show)
+        show('Exportados: GeoCore_Mina + GeoCore_Exploraciones ✓', 'ok')
+      } else {
+        await downloadExcel(proyectoActivo || null, show)
+        show('Excel exportado con formato de tabla ✓', 'ok')
+      }
     } catch (err) {
       show('Error al exportar: ' + err.message, 'err')
     } finally {
@@ -239,14 +255,24 @@ export default function ExportPage() {
 
       <div className="f-card" style={{ marginBottom: 24 }}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>📊 Todo en un Excel</div>
-        <div style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 14 }}>
-          Incluye Resumen General + 12 tablas, cada hoja con formato de tabla nativa Excel,
+        <div style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 6 }}>
+          Incluye Resumen General + todas las tablas + Quick Log, cada hoja con formato de tabla nativa Excel,
           columnas numéricas alineadas a la derecha y fechas en formato DD/MM/YYYY.
         </div>
+        {proyectoActivo === 'Ambos' && (
+          <div style={{ fontSize: 12, color: 'var(--acc)', marginBottom: 10, padding: '6px 10px', background: 'var(--acc)11', borderRadius: 6, border: '1px solid var(--acc)33' }}>
+            ⚠ Modo <strong>Ambos</strong>: se descargarán <strong>dos archivos separados</strong> (Mina + Exploraciones).
+          </div>
+        )}
+        {proyectoActivo && proyectoActivo !== 'Ambos' && (
+          <div style={{ fontSize: 12, color: 'var(--mut)', marginBottom: 10 }}>
+            Filtrando por proyecto: <strong style={{ color: 'var(--txt)' }}>{proyectoActivo}</strong>
+          </div>
+        )}
         <button className="btn btn-acc"
           style={{ width: '100%', padding: '13px', fontSize: 14, borderRadius: 10, justifyContent: 'center' }}
           onClick={exportAll} disabled={loading}>
-          {loading ? '⏳ Generando...' : '⬇ Descargar Excel completo (.xlsx)'}
+          {loading ? '⏳ Generando...' : proyectoActivo === 'Ambos' ? '⬇ Descargar Excel (Mina + Exploraciones)' : '⬇ Descargar Excel completo (.xlsx)'}
         </button>
       </div>
 

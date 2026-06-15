@@ -22,11 +22,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' })
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role, tables: user.tables },
+      { id: user.id, name: user.name, email: user.email, role: user.role, tables: user.tables, tipo_acceso: user.tipo_acceso || 'Ambos' },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     )
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, tables: user.tables } })
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, tables: user.tables, tipo_acceso: user.tipo_acceso || 'Ambos' } })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Error del servidor' })

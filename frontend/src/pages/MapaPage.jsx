@@ -40,7 +40,7 @@ const COLORES = {
 const ESTADOS = ['Completado', 'En Proceso', 'Plataforma', 'Pendiente']
 
 export default function MapaPage() {
-  const { user }        = useAuth()
+  const { user, proyectoActivo } = useAuth()
   const { toast, show } = useToast()
   const isAdmin = user?.role === 'ADMIN'
 
@@ -94,10 +94,13 @@ export default function MapaPage() {
 
   // ── Cargar datos ──────────────────────────────────────────────
   useEffect(() => {
+    const qp = (proyectoActivo && proyectoActivo !== 'Ambos')
+      ? `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}`
+      : ''
     Promise.all([
       api.get('/mapa/config'),
-      api.get('/tables/programa_general'),
-      api.get('/tables/resumen/general'),
+      api.get(`/tables/programa_general${qp}`),
+      api.get(`/tables/resumen/general${qp}`),
       api.get('/tables/resumen/plataforma').catch(() => ({ data: [] })),
     ]).then(([cfgRes, pgRes, resRes, platRes]) => {
       // Multi-slot: cfgRes.data is now an array of slots
@@ -159,7 +162,7 @@ export default function MapaPage() {
       })
       setSondajes(lista)
     }).catch(console.error).finally(() => setLoading(false))
-  }, [])
+  }, [proyectoActivo])
 
   // Cambiar plano activo
   function switchSlot(slot) {

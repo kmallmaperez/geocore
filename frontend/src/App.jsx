@@ -10,7 +10,49 @@ import UsersPage from './pages/UsersPage'
 import ExportPage from './pages/ExportPage'
 import MapaPage        from './pages/MapaPage'
 import DuplicadosPage  from './pages/DuplicadosPage'
-import QuickLogPage  from './pages/QuickLogPage'
+import QuickLogPage       from './pages/QuickLogPage'
+import ControlCalidadPage from './pages/ControlCalidadPage'
+
+// ── Selector de proyecto (Mina / Exploraciones / Ambos) ──────────
+function ProyectoSelector() {
+  const { user, proyectoActivo, setProyectoActivo } = useAuth()
+  const acceso = user?.tipo_acceso || 'Ambos'
+  if (acceso !== 'Ambos') return null   // acceso fijo, sin selector
+
+  const OPTS = [
+    { id: 'Ambos',        lbl: '🔀 Ambos' },
+    { id: 'Mina',         lbl: '⛏ Mina' },
+    { id: 'Exploraciones',lbl: '🔭 Exploraciones' },
+  ]
+
+  return (
+    <div style={{
+      marginLeft: 'var(--sidebar-w)',
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 20px', background: 'var(--sur)',
+      borderBottom: '1px solid var(--brd)', flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 11, color: 'var(--mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+        Proyecto:
+      </span>
+      {OPTS.map(o => (
+        <button
+          key={o.id}
+          className={`btn btn-sm ${proyectoActivo === o.id ? 'btn-acc' : 'btn-out'}`}
+          style={{ fontSize: 12 }}
+          onClick={() => setProyectoActivo(o.id)}
+        >
+          {o.lbl}
+        </button>
+      ))}
+      {proyectoActivo !== 'Ambos' && (
+        <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--mut)' }}>
+          — mostrando solo <strong style={{ color: 'var(--acc)' }}>{proyectoActivo}</strong>
+        </span>
+      )}
+    </div>
+  )
+}
 
 function PrivateLayout({ children, roles }) {
   const { user, loading } = useAuth()
@@ -29,7 +71,10 @@ function PrivateLayout({ children, roles }) {
   return (
     <div className="layout">
       <Sidebar />
-      <main className="main-content">{children}</main>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <ProyectoSelector />
+        <main className="main-content">{children}</main>
+      </div>
     </div>
   )
 }
@@ -59,7 +104,8 @@ function AppRoutes() {
       <Route path="/exportar"    element={<PrivateLayout><ExportPage /></PrivateLayout>} />
       <Route path="/mapa"         element={<PrivateLayout><MapaPage /></PrivateLayout>} />
       <Route path="/quicklog"      element={<PrivateLayout><QuickLogPage /></PrivateLayout>} />
-      <Route path="/duplicados"    element={<PrivateLayout roles={['ADMIN']}><DuplicadosPage /></PrivateLayout>} />
+      <Route path="/duplicados"     element={<PrivateLayout roles={['ADMIN']}><DuplicadosPage /></PrivateLayout>} />
+      <Route path="/control-calidad" element={<PrivateLayout><ControlCalidadPage /></PrivateLayout>} />
       <Route path="*"            element={<Navigate to="/" replace />} />
     </Routes>
   )

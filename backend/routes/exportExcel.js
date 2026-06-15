@@ -145,16 +145,36 @@ async function buildSheet(ExcelJS, wb, tkey, cols, rows) {
   ws.views = [{ state: 'frozen', ySplit: 1 }]
 }
 
-// GET /api/excel/download
+// GET /api/excel/download?tipo_proyecto=Mina
 router.get('/download', authMiddleware, async (req, res) => {
   try {
+    const tipo_proyecto = req.query.tipo_proyecto  // 'Mina', 'Exploraciones' o undefined
+
     const ExcelJS = require('exceljs')
     const wb = new ExcelJS.Workbook()
     wb.creator = 'GeoCore'
     wb.created = new Date()
 
+    // ── Filtro de DDHIDs por tipo de proyecto ───────────────────
+    let ddhidsFiltro = null  // null = sin filtro (todos)
+    if (tipo_proyecto && tipo_proyecto !== 'Ambos') {
+      const pgFiltro = await db.query(
+        `SELECT "DDHID" FROM programa_general WHERE COALESCE("tipo_proyecto",'Mina')=$1 AND "DDHID" IS NOT NULL AND "DDHID" <> ''`,
+        [tipo_proyecto]
+      )
+      ddhidsFiltro = new Set(pgFiltro.rows.map(r => String(r.DDHID).trim()))
+    }
+
+    function filterRowsByDDHID(rows, col = 'DDHID') {
+      if (!ddhidsFiltro) return rows
+      return rows.filter(r => ddhidsFiltro.has(String(r[col] || '').trim()))
+    }
+
     // ── Datos base ──────────────────────────────────────────────
-    const pg      = await db.query('SELECT * FROM programa_general ORDER BY id')
+    const pgQuery = ddhidsFiltro
+      ? `SELECT * FROM programa_general WHERE COALESCE("tipo_proyecto",'Mina')=$1 ORDER BY id`
+      : `SELECT * FROM programa_general ORDER BY id`
+    const pg = await db.query(pgQuery, ddhidsFiltro ? [tipo_proyecto] : [])
     const perfSum = await db.query('SELECT "DDHID", SUM("Total_Dia") AS ejecutado FROM perforacion GROUP BY "DDHID"')
     const recepQ  = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("TO"::text),'')::numeric) AS max_to FROM recepcion   GROUP BY "DDHID"`)
     const recupQ  = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM recuperacion GROUP BY "DDHID"`)
@@ -163,16 +183,24 @@ router.get('/download', authMiddleware, async (req, res) => {
     const geolQ   = await db.query(`SELECT "DDHID", MAX(NULLIF(TRIM("To"::text),'')::numeric) AS max_to FROM l_geologico  GROUP BY "DDHID"`)
     const ovQ     = await db.query('SELECT ddhid, estado FROM estado_overrides')
 
+    // Aplicar filtro DDHID a filas agrupadas
+    const filtPerfSum = { rows: filterRowsByDDHID(perfSum.rows) }
+    const filtRecepQ  = { rows: filterRowsByDDHID(recepQ.rows) }
+    const filtRecupQ  = { rows: filterRowsByDDHID(recupQ.rows) }
+    const filtFotoQ   = { rows: filterRowsByDDHID(fotoQ.rows) }
+    const filtGeotQ   = { rows: filterRowsByDDHID(geotQ.rows) }
+    const filtGeolQ   = { rows: filterRowsByDDHID(geolQ.rows) }
+
     // Plataforma info
     let platRows = []
     try { const pr = await db.query('SELECT * FROM plataforma_info'); platRows = pr.rows } catch(_) {}
 
-    const perfMap  = {}; perfSum.rows.forEach(r => { perfMap[r.DDHID]  = parseFloat(r.ejecutado)||0 })
-    const recepMap = {}; recepQ.rows.forEach(r  => { recepMap[r.DDHID] = parseFloat(r.max_to)||0 })
-    const recupMap = {}; recupQ.rows.forEach(r  => { recupMap[r.DDHID] = parseFloat(r.max_to)||0 })
-    const fotoMap  = {}; fotoQ.rows.forEach(r   => { fotoMap[r.DDHID]  = parseFloat(r.max_to)||0 })
-    const geotMap  = {}; geotQ.rows.forEach(r   => { geotMap[r.DDHID]  = parseFloat(r.max_to)||0 })
-    const geolMap  = {}; geolQ.rows.forEach(r   => { geolMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const perfMap  = {}; filtPerfSum.rows.forEach(r => { perfMap[r.DDHID]  = parseFloat(r.ejecutado)||0 })
+    const recepMap = {}; filtRecepQ.rows.forEach(r  => { recepMap[r.DDHID] = parseFloat(r.max_to)||0 })
+    const recupMap = {}; filtRecupQ.rows.forEach(r  => { recupMap[r.DDHID] = parseFloat(r.max_to)||0 })
+    const fotoMap  = {}; filtFotoQ.rows.forEach(r   => { fotoMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const geotMap  = {}; filtGeotQ.rows.forEach(r   => { geotMap[r.DDHID]  = parseFloat(r.max_to)||0 })
+    const geolMap  = {}; filtGeolQ.rows.forEach(r   => { geolMap[r.DDHID]  = parseFloat(r.max_to)||0 })
     const ovMap    = {}; ovQ.rows.forEach(r     => { ovMap[r.ddhid]    = r.estado })
     const platMap  = {}
     platRows.forEach(r => {
@@ -248,10 +276,14 @@ router.get('/download', authMiddleware, async (req, res) => {
     // ── HOJAS 4+: Resto de tablas ───────────────────────────────
     for (const [tkey, cols] of Object.entries(TABLES)) {
       const r = await db.query(`SELECT * FROM ${tkey} ORDER BY id`)
-      // Enrich perforacion rows with EQUIPO
+      // Aplicar filtro por DDHID (todas las tablas excepto envios/batch/tormentas sin DDHID)
       let sheetRows = r.rows
+      const DDHID_COL = { perforacion:'DDHID', recepcion:'DDHID', recuperacion:'DDHID', fotografia:'DDHID', l_geotecnico:'DDHID', l_geologico:'DDHID', muestreo:'DDHID', corte:'DDHID' }
+      if (ddhidsFiltro && DDHID_COL[tkey]) {
+        sheetRows = filterRowsByDDHID(sheetRows, DDHID_COL[tkey])
+      }
       if (tkey === 'perforacion') {
-        sheetRows = r.rows.map(row => ({
+        sheetRows = sheetRows.map(row => ({
           ...row,
           EQUIPO: pgEqMap[String(row.DDHID||'').trim()] || ''
         }))
@@ -362,8 +394,60 @@ router.get('/download', authMiddleware, async (req, res) => {
       }
     }
 
+    // ── HOJA Quick Log ───────────────────────────────────────────
+    try {
+      let qlRows = (await db.query(
+        `SELECT "DDHID", from_m, to_m, lito_cod, lito_desc, alter_cod, alter_desc, extra, obs
+         FROM quick_log ORDER BY "DDHID", from_m NULLS LAST`
+      )).rows
+      if (ddhidsFiltro) qlRows = filterRowsByDDHID(qlRows)
+
+      const qlCols = ['DDHID','from_m','to_m','lito_cod','lito_desc','alter_cod','alter_desc','extra','obs']
+      const qlBgHex = '7C3AED'
+      const qlWs = wb.addWorksheet('Quick Log')
+      qlWs.addRow(qlCols)
+      const qlHdr = qlWs.getRow(1)
+      qlHdr.height = 22
+      qlHdr.eachCell(cell => {
+        cell.font      = { bold:true, color:{argb:'FFFFFFFF'}, name:'Arial', size:10 }
+        cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+qlBgHex} }
+        cell.alignment = { horizontal:'center', vertical:'middle' }
+        cell.border    = { bottom:{ style:'medium', color:{argb:'FF000000'} } }
+      })
+      const qlNumCols = new Set(['from_m','to_m','lito_cod','alter_cod'])
+      qlRows.forEach((row, ri) => {
+        const vals = qlCols.map(col => {
+          const v = row[col]
+          if (v === null || v === undefined) return ''
+          if (qlNumCols.has(col)) { const n = parseFloat(v); return isNaN(n) ? '' : n }
+          return String(v)
+        })
+        const dr = qlWs.addRow(vals)
+        const zebraFg = ri % 2 === 0 ? 'FFF1F5F9' : 'FFFFFFFF'
+        dr.eachCell({ includeEmpty:true }, (cell, ci) => {
+          const col = qlCols[ci-1]
+          cell.fill   = { type:'pattern', pattern:'solid', fgColor:{ argb:zebraFg } }
+          cell.font   = { name:'Arial', size:10 }
+          cell.border = { bottom:{ style:'thin', color:{argb:'FFCBD5E1'} }, right:{ style:'thin', color:{argb:'FFCBD5E1'} } }
+          if (qlNumCols.has(col) && typeof cell.value === 'number') {
+            cell.numFmt    = '#,##0.00'
+            cell.alignment = { horizontal:'right', vertical:'middle' }
+          } else {
+            cell.alignment = { horizontal:'left', vertical:'middle' }
+          }
+        })
+      })
+      if (qlRows.length > 0) qlWs.autoFilter = `A1:${qlWs.getColumn(qlCols.length).letter}1`
+      qlCols.forEach((col, i) => {
+        const maxLen = qlRows.reduce((mx, row) => Math.max(mx, String(row[col]||'').length), col.length)
+        qlWs.getColumn(i+1).width = Math.min(Math.max(maxLen+2, 10), 40)
+      })
+      qlWs.views = [{ state:'frozen', ySplit:1 }]
+    } catch(_) {}
+
+    const suffix = tipo_proyecto && tipo_proyecto !== 'Ambos' ? `_${tipo_proyecto}` : ''
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', `attachment; filename="GeoCore_${new Date().toISOString().slice(0,10)}.xlsx"`)
+    res.setHeader('Content-Disposition', `attachment; filename="GeoCore${suffix}_${new Date().toISOString().slice(0,10)}.xlsx"`)
     await wb.xlsx.write(res)
     res.end()
   } catch (err) {

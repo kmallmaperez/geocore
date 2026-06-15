@@ -22,14 +22,17 @@ const NAV = [
   { id: '/tabla/muestreo',         ico: '🧫', lbl: 'Muestreo' },
   { id: '/tabla/envios',           ico: '📮', lbl: 'Envíos' },
   { id: '/tabla/batch',            ico: '🧾', lbl: 'Batch' },
-  { id: '/tabla/tormentas',        ico: '⛈',  lbl: 'Tormentas' },
+  { id: '/tabla/tormentas',           ico: '⛈',  lbl: 'Tormentas' },
+  { id: '/tabla/muestras_densidad',   ico: '⚗️',  lbl: 'Muestras Densidad' },
+  { section: 'Control' },
+  { id: '/control-calidad',           ico: '✅',  lbl: 'Control de Calidad' },
   { section: 'Sistema' },
   { id: '/usuarios',   ico: '👥', lbl: 'Usuarios',   roles: ['ADMIN'] },
   { id: '/duplicados', ico: '🔍', lbl: 'Duplicados',  roles: ['ADMIN'] },
   { id: '/exportar', ico: '⬇️', lbl: 'Exportar' },
 ]
 
-const TABLE_KEYS = ['perforacion','recepcion','recuperacion','fotografia','l_geotecnico','l_geologico','muestreo','corte','envios','batch','tormentas']
+const TABLE_KEYS = ['perforacion','recepcion','recuperacion','fotografia','l_geotecnico','l_geologico','muestreo','corte','envios','batch','tormentas','muestras_densidad']
 
 export default function Sidebar() {
   const { user, logout } = useAuth()
@@ -50,14 +53,23 @@ export default function Sidebar() {
 
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
-    // VIEWER: ve todo excepto sistema (usuarios, duplicados) y puede exportar
     if (user.role === 'VIEWER') {
-      const restricted = ['/usuarios','/duplicados']
+      const restricted = ['/usuarios','/duplicados','/control-calidad']
       return !restricted.includes(item.id) && !item.section
     }
     if (user.role !== 'USER') return true
+
+    // Control de Calidad: permiso propio
+    if (item.id === '/control-calidad')
+      return user.tables.includes('all') || user.tables.includes('control_calidad')
+
     if (['/dashboard','/resumen','/exportar','/mapa','/quicklog'].includes(item.id)) return true
+
     const tkey = item.id?.replace('/tabla/', '')
+    // Muestras de Densidad: visible si tiene l_geologico O muestras_densidad
+    if (tkey === 'muestras_densidad')
+      return user.tables.includes('all') || user.tables.includes('l_geologico') || user.tables.includes('muestras_densidad')
+
     if (TABLE_KEYS.includes(tkey))
       return user.tables.includes('all') || user.tables.includes(tkey)
     return false

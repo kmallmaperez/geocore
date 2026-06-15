@@ -142,7 +142,7 @@ const COLS = [
 ]
 
 export default function ResumenPage() {
-  const { user }        = useAuth()
+  const { user, proyectoActivo } = useAuth()
   const { toast, show } = useToast()
   const [resumen,  setResumen]  = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -152,7 +152,8 @@ export default function ResumenPage() {
 
   function fetchResumen() {
     setLoading(true)
-    api.get('/tables/resumen/general')
+    const qp = (proyectoActivo && proyectoActivo !== 'Ambos') ? `?tipo_proyecto=${encodeURIComponent(proyectoActivo)}` : ''
+    api.get(`/tables/resumen/general${qp}`)
       .then(r => setResumen((r.data || []).filter(x => {
         const tieneDDHID = x.DDHID && String(x.DDHID).trim() !== ''
         const tienePlat  = x.STATUS_PLATAFORMA || x.FECHA_ENTREGA_PLAT || x.ENTREGADO_POR
@@ -160,7 +161,7 @@ export default function ResumenPage() {
       })))
       .finally(() => setLoading(false))
   }
-  useEffect(() => { fetchResumen() }, [])
+  useEffect(() => { fetchResumen() }, [proyectoActivo])
 
   function toggleSort(col) {
     if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc')

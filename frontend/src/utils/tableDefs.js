@@ -5,8 +5,8 @@
 export const DEFS = {
   programa_general: {
     label: 'Programa General',
-    cols:     ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
-    formCols: ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH'],
+    cols:     ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH','tipo_proyecto'],
+    formCols: ['PLATAFORMA','DDHID','EQUIPO','ESTE','NORTE','ELEV','LENGTH','tipo_proyecto'],
   },
   perforacion: {
     label: 'Perforación',
@@ -82,8 +82,17 @@ export const DEFS = {
     label: 'Tormentas Eléctricas',
     cols:     ['Fecha','Desde','Hasta','TOTAL','Minutos','Horas','Geologo'],
     formCols: ['Fecha','Desde','Hasta'],
-    // TOTAL, Minutos, Horas → auto, Geologo → auto
     geo: true,
+  },
+  muestras_densidad: {
+    label: 'Muestras de Densidad',
+    cols:     ['Fecha','DDHID','Codigo_Muestra','From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud','Geologo'],
+    formCols: ['Fecha','DDHID','From_Corrida','To_Corrida','From_Muestra','To_Muestra'],
+    // Codigo_Muestra → auto (S + DDHID[0..6] + "-" + 2-digit counter)
+    // Longitud → auto (To_Muestra - From_Muestra)
+    // Geologo → auto
+    geo: true,
+    ft: ['From_Muestra', 'To_Muestra'],
   },
 }
 
@@ -94,6 +103,7 @@ export const NUM_COLS = new Set([
   'From_Noche','To_Noche','Acumulado','Metros','CAJAS','MUESTRAS',
   'Minutos','Horas','TOTAL','PLT','UCS','SG','N_Foto','Qty_Mina','Qty_Lab',
   'Muestras_Dens','Tiempo_dias','Envio_N','Total_muestras',
+  'From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud',
 ])
 
 // Campos requeridos por tabla
@@ -107,9 +117,10 @@ export const REQUIRED = {
   l_geologico:      ['Fecha','DDHID'],
   muestreo:         ['Fecha','DDHID','DE','HASTA'],
   corte:            ['Fecha','DDHID','DE','A'],
-  envios:           ['Fecha','Envio_N','Total_muestras'],
-  batch:            ['Envio','Batch','Sondaje'],
-  tormentas:        ['Fecha','Desde','Hasta'],
+  envios:            ['Fecha','Envio_N','Total_muestras'],
+  batch:             ['Envio','Batch','Sondaje'],
+  tormentas:         ['Fecha','Desde','Hasta'],
+  muestras_densidad: ['Fecha','DDHID','From_Muestra','To_Muestra'],
 }
 
 // Validación CLIENT-SIDE
@@ -259,6 +270,14 @@ export function computeAuto(tkey, form) {
   if (tkey === 'recepcion') {
     const f = parseFloat(form.FROM), t = parseFloat(form.TO)
     if (!isNaN(f) && !isNaN(t) && t >= f) auto.Metros = (t - f).toFixed(2)
+  }
+
+  // Muestras de Densidad: Longitud = To_Muestra - From_Muestra
+  if (tkey === 'muestras_densidad') {
+    const fm = parseFloat(form.From_Muestra), tm = parseFloat(form.To_Muestra)
+    if (!isNaN(fm) && !isNaN(tm) && tm >= fm) {
+      auto.Longitud = (tm - fm).toFixed(2)
+    }
   }
 
   // Tormentas: Minutos y Horas

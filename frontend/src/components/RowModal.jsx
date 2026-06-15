@@ -8,14 +8,16 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
   const formCols = def.formCols || def.cols.filter(c => c !== 'Geologo')
 
   const AUTO_LABELS = {
-    Turno_Dia: { label: 'Turno Día (auto)', hint: 'TO_Día − From_Día' },
-    Turno_Noche: { label: 'Turno Noche (auto)', hint: 'To_Noche − From_Noche' },
-    Total_Dia: { label: 'Total Día (auto)', hint: 'Turno Día + Turno Noche' },
-    Avance:   { label: 'Avance (auto)',   hint: 'A − DE' },
-    MUESTRAS: { label: 'Muestras (auto)', hint: 'HASTA − DE + 1' },
-    Metros: { label: 'Metros (auto)', hint: 'TO − FROM' },
-    Minutos: { label: 'Minutos (auto)', hint: 'Hasta − Desde' },
-    Horas: { label: 'Horas (auto)', hint: 'Minutos ÷ 60' },
+    Turno_Dia:      { label: 'Turno Día (auto)',          hint: 'TO_Día − From_Día' },
+    Turno_Noche:    { label: 'Turno Noche (auto)',        hint: 'To_Noche − From_Noche' },
+    Total_Dia:      { label: 'Total Día (auto)',          hint: 'Turno Día + Turno Noche' },
+    Avance:         { label: 'Avance (auto)',              hint: 'A − DE' },
+    MUESTRAS:       { label: 'Muestras (auto)',            hint: 'HASTA − DE + 1' },
+    Metros:         { label: 'Metros (auto)',              hint: 'TO − FROM' },
+    Minutos:        { label: 'Minutos (auto)',             hint: 'Hasta − Desde' },
+    Horas:          { label: 'Horas (auto)',               hint: 'Minutos ÷ 60' },
+    Codigo_Muestra: { label: 'Código de Muestra (auto)',  hint: 'S + DDHID(7) + correlativo' },
+    Longitud:       { label: 'Longitud (auto)',            hint: 'To_Muestra − From_Muestra' },
   }
 
   const DATE_FIELDS = ['Fecha','F_Envio','F_Solicitud','F_Resultados']
@@ -35,7 +37,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       if (initData) {
         f[c] = DATE_FIELDS.includes(c) ? cleanDate(initData[c]) : (initData[c] ?? '')
       } else {
-        f[c] = DATE_FIELDS.includes(c) ? today() : c === 'HORA' ? new Date().toTimeString().slice(0,5) : ''
+        if (c === 'tipo_proyecto') f[c] = 'Mina'
+        else f[c] = DATE_FIELDS.includes(c) ? today() : c === 'HORA' ? new Date().toTimeString().slice(0,5) : ''
       }
     })
     return f
@@ -135,6 +138,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     setSaving(true)
     const finalData = { ...form, ...autoVals }
     if (def.geo) finalData.Geologo = user.name
+    if (tkey === 'muestras_densidad' && codigoMuestra && !initData?.Codigo_Muestra)
+      finalData.Codigo_Muestra = codigoMuestra
     try {
       await onSave(finalData)
     } finally {
@@ -194,7 +199,27 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
         style={{color:'var(--grn)'}} onChange={()=>{}} onBlur={()=>{}}/>
     if (col === 'OBSERVACIONES')
       return <textarea {...base} rows={2} style={{resize:'vertical',width:'100%',background:'var(--bg)',border:'1px solid var(--brd)',borderRadius:6,padding:'6px 8px',color:'var(--txt)',fontSize:13,outline:'none'}}/>
+    if (col === 'tipo_proyecto')
+      return (
+        <select {...base}>
+          <option value="Mina">⛏ Mina</option>
+          <option value="Exploraciones">🔭 Exploraciones</option>
+        </select>
+      )
     return <input type={NUM_COLS.has(col) ? 'number' : 'text'} step="0.01" {...base} />
+  }
+
+  // Código de muestra automático (muestras_densidad)
+  let codigoMuestra = null
+  if (tkey === 'muestras_densidad') {
+    if (initData?.Codigo_Muestra) {
+      codigoMuestra = initData.Codigo_Muestra
+    } else if (form.DDHID) {
+      const sameRows = (existingRows || []).filter(r => r.DDHID === form.DDHID)
+      const counter  = sameRows.length + 1
+      const prefix   = String(form.DDHID).slice(0, 7)
+      codigoMuestra  = `S${prefix}-${String(counter).padStart(2, '0')}`
+    }
   }
 
   // Campos automáticos a mostrar
@@ -211,6 +236,10 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
   if (tkey === 'tormentas') {
     if (autoVals.Minutos !== undefined) autoPreview.push({ key:'Minutos', val: autoVals.Minutos + ' min' })
     if (autoVals.Horas   !== undefined) autoPreview.push({ key:'Horas',   val: autoVals.Horas + ' h' })
+  }
+  if (tkey === 'muestras_densidad') {
+    if (codigoMuestra)                   autoPreview.push({ key:'Codigo_Muestra', val: codigoMuestra })
+    if (autoVals.Longitud !== undefined)  autoPreview.push({ key:'Longitud',       val: autoVals.Longitud + ' m' })
   }
 
   const totalErrors = Object.keys(validateClient(tkey, form, existingRows, initData?.id)).length

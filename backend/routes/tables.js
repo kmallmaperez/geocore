@@ -5,16 +5,34 @@ const { validateRow }    = require('../middleware/validate')
 
 const router = express.Router()
 
+// Migraciones
+db.query(`ALTER TABLE programa_general ADD COLUMN IF NOT EXISTS "tipo_proyecto" TEXT DEFAULT 'Mina'`).catch(() => {})
+db.query(`
+  CREATE TABLE IF NOT EXISTS muestras_densidad (
+    id               SERIAL PRIMARY KEY,
+    "Fecha"          DATE,
+    "DDHID"          TEXT,
+    "Codigo_Muestra" TEXT,
+    "From_Corrida"   NUMERIC,
+    "To_Corrida"     NUMERIC,
+    "From_Muestra"   NUMERIC,
+    "To_Muestra"     NUMERIC,
+    "Longitud"       NUMERIC,
+    "Geologo"        TEXT,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+  )
+`).catch(() => {})
+
 // Tablas válidas
 const VALID_TABLES = [
   'programa_general','perforacion','recepcion','recuperacion',
   'fotografia','l_geotecnico','l_geologico','muestreo',
-  'corte','envios','batch','tormentas'
+  'corte','envios','batch','tormentas','muestras_densidad'
 ]
 
 // Mapeo tabla → columnas (para SELECT ordenado)
 const TABLE_COLS = {
-  programa_general: ['PLATAFORMA','DDHID','ESTE','NORTE','ELEV','LENGTH'],
+  programa_general: ['PLATAFORMA','DDHID','ESTE','NORTE','ELEV','LENGTH','tipo_proyecto'],
   perforacion:      ['DDHID','Fecha','From_Dia','TO_Dia','Turno_Dia','From_Noche','To_Noche','Turno_Noche','Total_Dia','Acumulado','Comentarios','Geologo'],
   recepcion:        ['Fecha','HORA','DDHID','FROM','TO','Metros','CAJAS','Geologo'],
   recuperacion:     ['Fecha','DDHID','From','To','Avance','Geologo'],
@@ -26,6 +44,7 @@ const TABLE_COLS = {
   envios:           ['Fecha','Envio_N','Total_muestras','Geologo'],
   batch:            ['Envio','Batch','Sondaje','Qty_Mina','Qty_Lab','Muestras_Dens','Cod_Cert','F_Envio','F_Solicitud','F_Resultados','Tiempo_dias','Geologo'],
   tormentas:        ['Fecha','Desde','Hasta','TOTAL','Minutos','Horas','Geologo'],
+  muestras_densidad:['Fecha','DDHID','Codigo_Muestra','From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud','Geologo'],
 }
 
 function checkTable(req, res, next) {
@@ -125,7 +144,11 @@ router.get('/ddhids/:tkey', authMiddleware, async (req, res) => {
 // GET /api/tables/resumen/general
 router.get('/resumen/general', authMiddleware, async (req, res) => {
   try {
-    const prog = await db.query('SELECT * FROM programa_general ORDER BY id')
+    const tipo_proyecto = req.query.tipo_proyecto
+    const progWhere = (tipo_proyecto && tipo_proyecto !== 'Ambos')
+      ? `WHERE COALESCE("tipo_proyecto", 'Mina') = '${tipo_proyecto.replace(/'/g, "''")}'`
+      : ''
+    const prog = await db.query(`SELECT * FROM programa_general ${progWhere} ORDER BY id`)
     const perf = await db.query('SELECT * FROM perforacion ORDER BY id')
     const ov   = await db.query('SELECT * FROM estado_overrides')
     let platRows = []
@@ -209,8 +232,15 @@ router.get('/resumen/general', authMiddleware, async (req, res) => {
 // GET /api/tables/dashboard/stats — stats completos para dashboard y tabla resumen
 router.get('/dashboard/stats', authMiddleware, async (req, res) => {
   try {
-    const [prog, perf, recep, recup, foto, geotec, geolog, ov] = await Promise.all([
-      db.query('SELECT * FROM programa_general'),
+    const tipo_proyecto = req.query.tipo_proyecto  // 'Mina', 'Exploraciones' o undefined/Ambos
+
+    // Construir filtro de programa_general por tipo de proyecto
+    const progWhere = (tipo_proyecto && tipo_proyecto !== 'Ambos')
+      ? `WHERE COALESCE("tipo_proyecto", 'Mina') = '${tipo_proyecto.replace(/'/g, "''")}'`
+      : ''
+
+    const [prog, perf, recep, recup, foto, geotec, geolog, ov, programaDB] = await Promise.all([
+      db.query(`SELECT * FROM programa_general ${progWhere}`),
       db.query('SELECT "DDHID", "Fecha", "Turno_Dia", "Turno_Noche", "Total_Dia", "Acumulado" FROM perforacion ORDER BY "Fecha"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("TO" ::text),\'\')::numeric) AS max_to FROM recepcion    GROUP BY "DDHID"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM recuperacion  GROUP BY "DDHID"'),
@@ -218,10 +248,34 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM l_geotecnico  GROUP BY "DDHID"'),
       db.query('SELECT "DDHID", MAX(NULLIF(TRIM("To" ::text),\'\')::numeric) AS max_to, MAX("Fecha") AS ultima_fecha FROM l_geologico   GROUP BY "DDHID"'),
       db.query('SELECT * FROM estado_overrides'),
+      // Leer programa de perforación desde BD (filtrado por tipo_proyecto)
+      (async () => {
+        try {
+          const tipoQ = (tipo_proyecto && tipo_proyecto !== 'Ambos') ? tipo_proyecto : 'Mina'
+          return await db.query(
+            `SELECT fecha::text AS f, acum_prog::numeric AS a FROM programa_perforacion WHERE tipo_proyecto=$1 ORDER BY fecha`,
+            [tipoQ]
+          )
+        } catch (_) { return { rows: [] } }
+      })(),
     ])
 
     const overrides = {}
     ov.rows.forEach(r => { overrides[r.ddhid] = r.estado })
+
+    // DDHIDs activos en el filtro actual
+    const ddhidsActivos = new Set(prog.rows.map(p => p.DDHID).filter(Boolean))
+
+    // Filtrar perforación por los DDHIDs del proyecto activo
+    const perfFiltrado = (tipo_proyecto && tipo_proyecto !== 'Ambos')
+      ? { ...perf, rows: perf.rows.filter(r => ddhidsActivos.has(r.DDHID)) }
+      : perf
+
+    // Filtrar tablas agrupadas por DDHID del proyecto activo
+    function filterByDDHID(rows) {
+      if (!tipo_proyecto || tipo_proyecto === 'Ambos') return rows
+      return rows.filter(r => ddhidsActivos.has(r.DDHID))
+    }
 
     // MAX(To) por DDHID helper — cada tabla viene agrupada
     function maxBy(rows, ddhid) {
@@ -233,7 +287,7 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     const porSondaje = prog.rows
       .filter(p => p.DDHID && String(p.DDHID).trim() !== '')
       .map(p => {
-        const perfRows = perf.rows.filter(x => x.DDHID === p.DDHID)
+        const perfRows = perfFiltrado.rows.filter(x => x.DDHID === p.DDHID)
         // Usar MAX(Acumulado) del sondaje como metros reales perforados
         const maxAcum = perfRows.reduce((max, x) => {
           const a = parseFloat(x.Acumulado) || 0
@@ -299,13 +353,12 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       return fechas[fechas.length-1] || ''
     }
 
-    // Totales globales — suma de MAX(To) por sondaje (ya vienen agrupados)
+    // Totales globales — suma de MAX(To) por sondaje (filtrados por proyecto activo)
     const totales = {
       // Total perforado = suma del MAX(Acumulado) por DDHID
-      // Acumulado refleja la profundidad real alcanzada; Total_Dia es solo el incremento diario
       perforado: (() => {
         const maxAcumPorDDHID = {}
-        perf.rows.forEach(r => {
+        perfFiltrado.rows.forEach(r => {
           const acum = parseFloat(r.Acumulado) || 0
           if (!maxAcumPorDDHID[r.DDHID] || acum > maxAcumPorDDHID[r.DDHID]) {
             maxAcumPorDDHID[r.DDHID] = acum
@@ -313,11 +366,11 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
         })
         return parseFloat(Object.values(maxAcumPorDDHID).reduce((s,v) => s+v, 0).toFixed(2))
       })(),
-      recepcion:    parseFloat(recep.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
-      recuperado:   parseFloat(recup.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
-      fotografiado: parseFloat(foto.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
-      geotecnico:   parseFloat(geotec.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
-      geologico:    parseFloat(geolog.rows.reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      recepcion:    parseFloat(filterByDDHID(recep.rows).reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      recuperado:   parseFloat(filterByDDHID(recup.rows).reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      fotografiado: parseFloat(filterByDDHID(foto.rows).reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      geotecnico:   parseFloat(filterByDDHID(geotec.rows).reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
+      geologico:    parseFloat(filterByDDHID(geolog.rows).reduce((s,r) => s+(parseFloat(r.max_to)||0),0).toFixed(2)),
     }
 
     // Últimas fechas de reporte por tabla
@@ -332,11 +385,11 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       return fechas[fechas.length-1] || ''
     }
     const ultimasFechas = {
-      perf:  ultimaFecha(perf.rows),
-      recup: maxFechaDeGrupo(recup.rows),
-      foto:  maxFechaDeGrupo(foto.rows),
-      geot:  maxFechaDeGrupo(geotec.rows),
-      geol:  maxFechaDeGrupo(geolog.rows),
+      perf:  ultimaFecha(perfFiltrado.rows),
+      recup: maxFechaDeGrupo(filterByDDHID(recup.rows)),
+      foto:  maxFechaDeGrupo(filterByDDHID(foto.rows)),
+      geot:  maxFechaDeGrupo(filterByDDHID(geotec.rows)),
+      geol:  maxFechaDeGrupo(filterByDDHID(geolog.rows)),
     }
 
     // Serie temporal de perforación para gráfico acumulado
@@ -344,7 +397,7 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
     // equipoInicio: solo equipos con nombre asignado (no vacíos)
     // Cada equipo físico (máquina) → fecha en que empezó a perforar por primera vez
     const equipoInicio = {}
-    perf.rows.forEach(r => {
+    perfFiltrado.rows.forEach(r => {
       const pg = prog.rows.find(p => p.DDHID === r.DDHID)
       const equipo = pg?.EQUIPO ? String(pg.EQUIPO).trim() : null
       if (!equipo) return // sin equipo asignado, no cuenta para el ideal
@@ -354,31 +407,13 @@ router.get('/dashboard/stats', authMiddleware, async (req, res) => {
       if (!equipoInicio[equipo] || f < equipoInicio[equipo]) equipoInicio[equipo] = f
     })
 
-    // ── Programa semanal fijo ────────────────────────────────────────
-    const PROGRAMA = [
-      {f:'2025-12-31',a:2196},{f:'2026-01-04',a:2621},{f:'2026-01-11',a:3365},
-      {f:'2026-01-18',a:4109},{f:'2026-01-25',a:4853},{f:'2026-01-31',a:5490},
-      {f:'2026-02-01',a:5608},{f:'2026-02-08',a:6431},{f:'2026-02-15',a:7254},
-      {f:'2026-02-22',a:8077},{f:'2026-02-28',a:8784},{f:'2026-03-01',a:8908},
-      {f:'2026-03-08',a:9776},{f:'2026-03-15',a:10644},{f:'2026-03-22',a:11512},
-      {f:'2026-03-29',a:12380},{f:'2026-03-31',a:12627},{f:'2026-04-05',a:13451},
-      {f:'2026-04-12',a:14604},{f:'2026-04-19',a:15757},{f:'2026-04-26',a:16910},
-      {f:'2026-04-30',a:17569},{f:'2026-05-03',a:18100},{f:'2026-05-10',a:19340},
-      {f:'2026-05-17',a:20580},{f:'2026-05-24',a:21820},{f:'2026-05-31',a:23059},
-      {f:'2026-06-07',a:23828},{f:'2026-06-14',a:24597},{f:'2026-06-21',a:25366},
-      {f:'2026-06-28',a:26135},{f:'2026-06-30',a:26353},{f:'2026-07-05',a:26619},
-      {f:'2026-07-12',a:26991},{f:'2026-07-19',a:27363},{f:'2026-07-26',a:27735},
-      {f:'2026-07-31',a:28000},
-    ]
+    // ── Programa de perforación desde la base de datos ──────────────
+    const PROGRAMA = programaDB.rows.map(r => ({ f: String(r.f).slice(0,10), a: parseFloat(r.a) }))
 
     // ── Acumulado real diario ─────────────────────────────────────
-    // Para cada fecha: MAX(Acumulado) de todos los sondajes activos hasta esa fecha
-    // Usamos el Acumulado (profundidad real por sondaje) en lugar de Total_Dia
-    // para evitar inconsistencias por registros duplicados o correcciones
     const perfPorFecha = {}
-    // Primero agrupamos por DDHID+Fecha para obtener el Acumulado máximo de ese día por sondaje
     const acumPorDDHIDFecha = {}
-    perf.rows.forEach(r => {
+    perfFiltrado.rows.forEach(r => {
       const f = r.Fecha instanceof Date
         ? (() => { const d=r.Fecha; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}` })()
         : String(r.Fecha).slice(0,10)
@@ -778,11 +813,36 @@ router.get('/duplicados', authMiddleware, async (req, res) => {
 // ── CRUD GENÉRICO ────────────────────────────────────────────────
 
 // GET /api/tables/:table
+// Tablas que tienen DDHID y se pueden filtrar por tipo_proyecto via programa_general
+const DDHID_TABLES = new Set([
+  'perforacion','recepcion','recuperacion','fotografia',
+  'l_geotecnico','l_geologico','muestreo','corte','muestras_densidad'
+])
+
 router.get('/:table', authMiddleware, checkTable, async (req, res) => {
   try {
-    const table = req.params.table
-    let q = `SELECT * FROM ${table} ORDER BY id`
-    const r = await db.query(q)
+    const table         = req.params.table
+    const tipo_proyecto = req.query.tipo_proyecto
+
+    let q, params = []
+
+    if (tipo_proyecto && tipo_proyecto !== 'Ambos') {
+      if (table === 'programa_general') {
+        q = `SELECT * FROM programa_general WHERE COALESCE("tipo_proyecto", 'Mina') = $1 ORDER BY id`
+        params = [tipo_proyecto]
+      } else if (DDHID_TABLES.has(table)) {
+        q = `SELECT * FROM ${table} WHERE "DDHID" IN (
+               SELECT "DDHID" FROM programa_general WHERE COALESCE("tipo_proyecto", 'Mina') = $1
+             ) ORDER BY id`
+        params = [tipo_proyecto]
+      } else {
+        q = `SELECT * FROM ${table} ORDER BY id`
+      }
+    } else {
+      q = `SELECT * FROM ${table} ORDER BY id`
+    }
+
+    const r = await db.query(q, params)
     const rows = r.rows.map(toRow)
     res.json(rows)
   } catch (err) { res.status(500).json({ error: err.message }) }
@@ -795,6 +855,23 @@ router.post('/:table', authMiddleware, checkTable, canWrite, async (req, res) =>
   row.Geologo = req.user.name
 
   try {
+    // muestras_densidad: auto-generar Codigo_Muestra y Longitud
+    if (table === 'muestras_densidad') {
+      if (!row.Codigo_Muestra && row.DDHID) {
+        const cntRes = await db.query(
+          `SELECT COUNT(*) AS cnt FROM muestras_densidad WHERE "DDHID" = $1`,
+          [row.DDHID]
+        )
+        const cnt = parseInt(cntRes.rows[0].cnt) || 0
+        const prefix = String(row.DDHID).slice(0, 7)
+        row.Codigo_Muestra = `S${prefix}-${String(cnt + 1).padStart(2, '0')}`
+      }
+      const fm = parseFloat(row.From_Muestra), tm = parseFloat(row.To_Muestra)
+      if (!isNaN(fm) && !isNaN(tm) && tm >= fm) {
+        row.Longitud = parseFloat((tm - fm).toFixed(2))
+      }
+    }
+
     // Obtener filas existentes para validar overlaps
     const existing = await db.query(`SELECT * FROM ${table}`)
     const errs = validateRow(table, row, existing.rows.map(toRow), null)
@@ -819,6 +896,14 @@ router.put('/:table/:id', authMiddleware, checkTable, canWrite, async (req, res)
   const id    = parseInt(req.params.id)
   const row   = { ...req.body }
   row.Geologo = req.user.name
+
+  // muestras_densidad: recalcular Longitud en cada edición
+  if (table === 'muestras_densidad') {
+    const fm = parseFloat(row.From_Muestra), tm = parseFloat(row.To_Muestra)
+    if (!isNaN(fm) && !isNaN(tm) && tm >= fm) {
+      row.Longitud = parseFloat((tm - fm).toFixed(2))
+    }
+  }
 
   try {
     const curr = await db.query(`SELECT * FROM ${table} WHERE id=$1`, [id])
