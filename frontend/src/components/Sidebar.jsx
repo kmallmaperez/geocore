@@ -58,6 +58,11 @@ export default function Sidebar() {
       const restricted = ['/usuarios','/duplicados','/control-calidad','/tabla/collar_ejecutados']
       return !restricted.includes(item.id) && !item.section
     }
+    if (user.role === 'SUPERVISOR') {
+      if (item.id === '/tabla/collar_ejecutados')
+        return (user.tables||[]).includes('all') || (user.tables||[]).includes('collar_ejecutados')
+      return true
+    }
     if (user.role !== 'USER') return true
 
     // Control de Calidad: permiso propio

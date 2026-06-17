@@ -32,9 +32,11 @@ function UserModal({ user, onClose, onSave }) {
     }))
   }
 
-  const isAllAccess = form.role === 'ADMIN' || form.role === 'SUPERVISOR'
-  const isViewer    = form.role === 'VIEWER'
-  const SPECIAL_KEYS   = ['quicklog', 'control_calidad', 'collar_ejecutados']
+  const isAdmin      = form.role === 'ADMIN'
+  const isSupervisor = form.role === 'SUPERVISOR'
+  const isViewer     = form.role === 'VIEWER'
+  const SPECIAL_KEYS        = ['quicklog', 'control_calidad', 'collar_ejecutados']
+  const SUPERVISOR_RESTRICTED = ['control_calidad', 'collar_ejecutados']
   const assignableKeys = [...ALL_TABLE_KEYS, ...SPECIAL_KEYS]
 
   return (
@@ -69,6 +71,26 @@ function UserModal({ user, onClose, onSave }) {
             👁 Acceso de solo lectura — puede ver todas las tablas y exportar Excel, pero no puede crear, editar ni eliminar registros.
           </div>
         )}
+
+        {isSupervisor && (
+          <div style={{marginTop:14}}>
+            <div className="alert a-ok" style={{marginBottom:10}}>✓ Acceso completo a todas las tablas de registro</div>
+            <label style={{fontSize:10,fontWeight:600,color:'var(--mut)',textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:8}}>
+              Módulos de acceso restringido <span style={{fontWeight:400,textTransform:'none',fontSize:11}}>(requieren habilitación explícita)</span>
+            </label>
+            <div>
+              {SUPERVISOR_RESTRICTED.map(k => (
+                <span key={k}
+                  className={`chip ${form.tables.includes(k) ? 'on' : ''}`}
+                  onClick={()=>togTable(k)}
+                  style={{fontSize:13}}>
+                  {TABLE_LABELS[k]}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {form.role === 'USER' && (
           <div style={{marginTop:14}}>
             <label style={{fontSize:10,fontWeight:600,color:'var(--mut)',textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:8}}>
@@ -100,7 +122,7 @@ function UserModal({ user, onClose, onSave }) {
           </div>
         )}
 
-        {isAllAccess && (
+        {isAdmin && (
           <div className="alert a-ok" style={{marginTop:12}}>✓ Acceso completo a todas las tablas y módulos</div>
         )}
 
