@@ -46,6 +46,8 @@ export default function TablePage() {
   const [sortDir,   setSortDir]   = useState('asc')
   const [platMap,   setPlatMap]   = useState({})        // { DDHID: platData }
   const [platModal, setPlatModal] = useState(null)      // DDHID abierto
+  const [topografos,    setTopografos]    = useState([])
+  const [topoModal,     setTopoModal]     = useState(false)
 
   useEffect(() => {
     setRows([]); setLoading(true); setSearch(''); setFilterD(''); setSortCol(null)
@@ -55,6 +57,10 @@ export default function TablePage() {
     api.get(`/tables/${tkey}${qp}`).then(r => setRows(r.data)).finally(() => setLoading(false))
     // Sondajes disponibles: filtrados por profundidad alcanzada y por tipo_proyecto activo
     api.get(`/tables/ddhids/${tkey}${qp}`).then(r => setDdhids(r.data || []))
+    // Cargar topógrafos si estamos en collar_ejecutados
+    if (tkey === 'collar_ejecutados') {
+      api.get('/tables/topografos').then(r => setTopografos(r.data || [])).catch(() => {})
+    }
     // Cargar datos de plataforma si estamos en programa_general
     if (tkey === 'programa_general') {
       api.get('/tables/resumen/plataforma').then(r => {
@@ -146,7 +152,9 @@ export default function TablePage() {
   if (!def) return <div className="page-title">Tabla no encontrada</div>
 
   const isViewer     = user.role === 'VIEWER'
-  const canWrite     = !isViewer && (user.role === 'ADMIN' || user.role === 'SUPERVISOR' || (user.tables||[]).includes(tkey))
+  const hasTableAccess = (user.tables||[]).includes(tkey) ||
+    (tkey === 'muestras_densidad' && (user.tables||[]).includes('l_geologico'))
+  const canWrite     = !isViewer && (user.role === 'ADMIN' || user.role === 'SUPERVISOR' || hasTableAccess)
   // USER puede editar/eliminar solo si es dueño del registro (Geologo === user.name)
   function canEditRow(row) {
     if (user.role === 'ADMIN' || user.role === 'SUPERVISOR') return true
@@ -196,6 +204,13 @@ export default function TablePage() {
             style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
             onClick={downloadCSV}>
             ⬇️ Descargar CSV
+          </button>
+        )}
+        {tkey === 'collar_ejecutados' && canWrite && (
+          <button className="btn btn-out"
+            style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
+            onClick={() => setTopoModal(true)}>
+            👷 Gestionar Topógrafos
           </button>
         )}
       </div>
@@ -328,7 +343,8 @@ export default function TablePage() {
         <RowModal tkey={tkey} onClose={() => setModal(null)} onSave={handleSave}
           onDelete={handleDelete}
           canDelete={modal !== 'new' && canDeleteRow(modal)}
-          initData={modal === 'new' ? null : modal} existingRows={rows} ddhids={ddhids} />
+          initData={modal === 'new' ? null : modal} existingRows={rows} ddhids={ddhids}
+          topografos={topografos} />
       )}
       {importing && (
         <ImportModal tkey={tkey} def={def} onClose={() => setImporting(false)} onImport={handleImport} />
@@ -346,6 +362,106 @@ export default function TablePage() {
           }}
         />
       )}
+      {topoModal && (
+        <TopografosModal
+          topografos={topografos}
+          onClose={() => setTopoModal(false)}
+          onChange={setTopografos}
+          show={show}
+        />
+      )}
+    </div>
+  )
+}
+
+function TopografosModal({ topografos, onClose, onChange, show }) {
+  const [list,    setList]    = React.useState(topografos)
+  const [form,    setForm]    = React.useState({ Topografo: '', COD_TOPO: '' })
+  const [editing, setEditing] = React.useState(null)
+  const [saving,  setSaving]  = React.useState(false)
+
+  async function handleSave() {
+    if (!form.Topografo.trim() || !form.COD_TOPO.trim()) {
+      show('Nombre y código son obligatorios', 'err'); return
+    }
+    setSaving(true)
+    try {
+      if (editing) {
+        const r = await api.put(`/tables/topografos/${editing.id}`, form)
+        const updated = list.map(t => t.id === editing.id ? r.data : t)
+        setList(updated); onChange(updated)
+        show('Topógrafo actualizado ✓', 'ok')
+      } else {
+        const r = await api.post('/tables/topografos', form)
+        const updated = [...list, r.data]
+        setList(updated); onChange(updated)
+        show('Topógrafo agregado ✓', 'ok')
+      }
+      setForm({ Topografo: '', COD_TOPO: '' }); setEditing(null)
+    } catch (err) {
+      show('Error: ' + (err.response?.data?.error || err.message), 'err')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDelete(t) {
+    if (!window.confirm(`¿Eliminar topógrafo "${t.Topografo}"?`)) return
+    try {
+      await api.delete(`/tables/topografos/${t.id}`)
+      const updated = list.filter(x => x.id !== t.id)
+      setList(updated); onChange(updated)
+      show('Eliminado ✓', 'ok')
+    } catch { show('Error al eliminar', 'err') }
+  }
+
+  function startEdit(t) {
+    setEditing(t)
+    setForm({ Topografo: t.Topografo || '', COD_TOPO: t.COD_TOPO || '' })
+  }
+
+  return (
+    <div className="m-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="m-box">
+        <div className="m-title">👷 Gestionar Topógrafos</div>
+        <div className="fgrid" style={{ marginBottom: 12 }}>
+          <div className="fg">
+            <label>Nombre Topógrafo *</label>
+            <input value={form.Topografo} onChange={e => setForm(p => ({...p, Topografo: e.target.value}))} placeholder="Ej: Juan Pérez" />
+          </div>
+          <div className="fg">
+            <label>Cod. Topógrafo *</label>
+            <input value={form.COD_TOPO} onChange={e => setForm(p => ({...p, COD_TOPO: e.target.value}))} placeholder="Ej: TP-01" />
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+          <button className="btn btn-acc btn-sm" onClick={handleSave} disabled={saving}>
+            {saving ? '⏳' : editing ? '💾 Actualizar' : '➕ Agregar'}
+          </button>
+          {editing && (
+            <button className="btn btn-out btn-sm" onClick={() => { setEditing(null); setForm({ Topografo:'', COD_TOPO:'' }) }}>
+              Cancelar
+            </button>
+          )}
+        </div>
+        {list.length === 0 ? (
+          <div style={{ color:'var(--mut)', fontSize:13, textAlign:'center', padding:'16px 0' }}>Sin topógrafos registrados</div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {list.map(t => (
+              <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', background:'var(--sur2)', borderRadius:8 }}>
+                <div style={{ flex:1 }}>
+                  <span style={{ fontWeight:600, fontSize:13 }}>{t.Topografo}</span>
+                  <span style={{ marginLeft:8, fontSize:12, color:'var(--mut)', background:'var(--sur)', padding:'2px 6px', borderRadius:4 }}>{t.COD_TOPO}</span>
+                </div>
+                <button className="btn btn-blu btn-sm" onClick={() => startEdit(t)}>✎</button>
+                <button className="btn btn-red btn-sm" onClick={() => handleDelete(t)}>🗑</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="m-actions">
+          <button className="btn btn-out" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
     </div>
   )
 }

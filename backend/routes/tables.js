@@ -8,6 +8,27 @@ const router = express.Router()
 // Migraciones
 db.query(`ALTER TABLE programa_general ADD COLUMN IF NOT EXISTS "tipo_proyecto" TEXT DEFAULT 'Mina'`).catch(() => {})
 db.query(`
+  CREATE TABLE IF NOT EXISTS topografos (
+    id          SERIAL PRIMARY KEY,
+    "Topografo" TEXT NOT NULL,
+    "COD_TOPO"  TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+  )
+`).catch(() => {})
+db.query(`
+  CREATE TABLE IF NOT EXISTS collar_ejecutados (
+    id              SERIAL PRIMARY KEY,
+    "Fecha"         DATE,
+    "DDHID"         TEXT,
+    "ESTE"          NUMERIC,
+    "NORTE"         NUMERIC,
+    "ELEVACION"     NUMERIC,
+    "TOPOGRAFO"     TEXT,
+    "Cod_Topografo" TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+  )
+`).catch(() => {})
+db.query(`
   CREATE TABLE IF NOT EXISTS muestras_densidad (
     id               SERIAL PRIMARY KEY,
     "Fecha"          DATE,
@@ -27,7 +48,8 @@ db.query(`
 const VALID_TABLES = [
   'programa_general','perforacion','recepcion','recuperacion',
   'fotografia','l_geotecnico','l_geologico','muestreo',
-  'corte','envios','batch','tormentas','muestras_densidad'
+  'corte','envios','batch','tormentas','muestras_densidad',
+  'collar_ejecutados','topografos'
 ]
 
 // Mapeo tabla → columnas (para SELECT ordenado)
@@ -44,7 +66,9 @@ const TABLE_COLS = {
   envios:           ['Fecha','Envio_N','Total_muestras','Geologo'],
   batch:            ['Envio','Batch','Sondaje','Qty_Mina','Qty_Lab','Muestras_Dens','Cod_Cert','F_Envio','F_Solicitud','F_Resultados','Tiempo_dias','Geologo'],
   tormentas:        ['Fecha','Desde','Hasta','TOTAL','Minutos','Horas','Geologo'],
-  muestras_densidad:['Fecha','DDHID','Codigo_Muestra','From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud','Geologo'],
+  muestras_densidad:  ['Fecha','DDHID','Codigo_Muestra','From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud','Geologo'],
+  collar_ejecutados:  ['Fecha','DDHID','ESTE','NORTE','ELEVACION','TOPOGRAFO','Cod_Topografo'],
+  topografos:         ['Topografo','COD_TOPO'],
 }
 
 function checkTable(req, res, next) {
@@ -55,6 +79,12 @@ function checkTable(req, res, next) {
 function canWrite(req, res, next) {
   const u = req.user
   if (u.role === 'VIEWER') return res.status(403).json({ error: 'Los visualizadores no pueden modificar datos' })
+  // collar_ejecutados y topografos: solo ADMIN o usuarios con permiso explícito
+  if (['collar_ejecutados','topografos'].includes(req.params.table)) {
+    if (u.role === 'ADMIN' || (u.tables||[]).includes('all') || (u.tables||[]).includes('collar_ejecutados'))
+      return next()
+    return res.status(403).json({ error: 'Sin permiso para esta tabla' })
+  }
   if (u.role === 'ADMIN' || u.role === 'SUPERVISOR') return next()
   if (u.tables.includes('all') || u.tables.includes(req.params.table)) return next()
   return res.status(403).json({ error: 'Sin permiso para escribir en esta tabla' })
@@ -822,13 +852,20 @@ router.get('/duplicados', authMiddleware, async (req, res) => {
 // Tablas que tienen DDHID y se pueden filtrar por tipo_proyecto via programa_general
 const DDHID_TABLES = new Set([
   'perforacion','recepcion','recuperacion','fotografia',
-  'l_geotecnico','l_geologico','muestreo','corte','muestras_densidad'
+  'l_geotecnico','l_geologico','muestreo','corte','muestras_densidad','collar_ejecutados'
 ])
 
 router.get('/:table', authMiddleware, checkTable, async (req, res) => {
   try {
     const table         = req.params.table
     const tipo_proyecto = req.query.tipo_proyecto
+
+    // Tablas con acceso restringido: solo ADMIN o permiso explícito
+    if (['collar_ejecutados','topografos'].includes(table)) {
+      const u = req.user
+      if (u.role !== 'ADMIN' && !(u.tables||[]).includes('all') && !(u.tables||[]).includes('collar_ejecutados'))
+        return res.status(403).json({ error: 'Sin permiso' })
+    }
 
     let q, params = []
 

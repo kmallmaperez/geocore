@@ -201,12 +201,13 @@ export default function ExportPage() {
     setLoading(true)
     try {
       if (proyectoActivo === 'Ambos') {
-        // Descargar dos archivos separados
+        // Descargar tres archivos: Mina, Exploraciones y Ambos (toda la data)
         await downloadExcel('Mina', show)
-        // Pequeña pausa para que el navegador no bloquee la segunda descarga
         await new Promise(r => setTimeout(r, 800))
         await downloadExcel('Exploraciones', show)
-        show('Exportados: GeoCore_Mina + GeoCore_Exploraciones ✓', 'ok')
+        await new Promise(r => setTimeout(r, 800))
+        await downloadExcel('Ambos', show)
+        show('Exportados: GeoCore_Mina + GeoCore_Exploraciones + GeoCore_Ambos ✓', 'ok')
       } else {
         await downloadExcel(proyectoActivo || null, show)
         show('Excel exportado con formato de tabla ✓', 'ok')
@@ -261,7 +262,7 @@ export default function ExportPage() {
         </div>
         {proyectoActivo === 'Ambos' && (
           <div style={{ fontSize: 12, color: 'var(--acc)', marginBottom: 10, padding: '6px 10px', background: 'var(--acc)11', borderRadius: 6, border: '1px solid var(--acc)33' }}>
-            ⚠ Modo <strong>Ambos</strong>: se descargarán <strong>dos archivos separados</strong> (Mina + Exploraciones).
+            ⚠ Modo <strong>Ambos</strong>: se descargarán <strong>tres archivos</strong>: GeoCore_Mina, GeoCore_Exploraciones y GeoCore_Ambos (toda la data).
           </div>
         )}
         {proyectoActivo && proyectoActivo !== 'Ambos' && (
@@ -272,7 +273,7 @@ export default function ExportPage() {
         <button className="btn btn-acc"
           style={{ width: '100%', padding: '13px', fontSize: 14, borderRadius: 10, justifyContent: 'center' }}
           onClick={exportAll} disabled={loading}>
-          {loading ? '⏳ Generando...' : proyectoActivo === 'Ambos' ? '⬇ Descargar Excel (Mina + Exploraciones)' : '⬇ Descargar Excel completo (.xlsx)'}
+          {loading ? '⏳ Generando...' : proyectoActivo === 'Ambos' ? '⬇ Descargar Excel (Mina + Exploraciones + Ambos)' : '⬇ Descargar Excel completo (.xlsx)'}
         </button>
       </div>
 

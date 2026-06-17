@@ -94,6 +94,12 @@ export const DEFS = {
     geo: true,
     ft: ['From_Muestra', 'To_Muestra'],
   },
+  collar_ejecutados: {
+    label: 'Collar Ejecutados',
+    cols:     ['Fecha','DDHID','ESTE','NORTE','ELEVACION','TOPOGRAFO','Cod_Topografo'],
+    formCols: ['Fecha','DDHID','ESTE','NORTE','ELEVACION','TOPOGRAFO'],
+    // Cod_Topografo → auto (se jala del topógrafo seleccionado)
+  },
 }
 
 // Columnas numéricas
@@ -104,6 +110,7 @@ export const NUM_COLS = new Set([
   'Minutos','Horas','TOTAL','PLT','UCS','SG','N_Foto','Qty_Mina','Qty_Lab',
   'Muestras_Dens','Tiempo_dias','Envio_N','Total_muestras',
   'From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud',
+  'ELEVACION',
 ])
 
 // Campos requeridos por tabla
@@ -121,6 +128,7 @@ export const REQUIRED = {
   batch:             ['Envio','Batch','Sondaje'],
   tormentas:         ['Fecha','Desde','Hasta'],
   muestras_densidad: ['Fecha','DDHID','From_Muestra','To_Muestra'],
+  collar_ejecutados: ['Fecha','DDHID','ESTE','NORTE','ELEVACION','TOPOGRAFO'],
 }
 
 // Validación CLIENT-SIDE

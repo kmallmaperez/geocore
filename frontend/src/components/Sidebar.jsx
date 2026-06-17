@@ -26,6 +26,7 @@ const NAV = [
   { id: '/tabla/muestras_densidad',   ico: '⚗️',  lbl: 'Muestras Densidad' },
   { section: 'Control' },
   { id: '/control-calidad',           ico: '✅',  lbl: 'Control de Calidad' },
+  { id: '/tabla/collar_ejecutados',   ico: '📍',  lbl: 'Collar Ejecutados' },
   { section: 'Sistema' },
   { id: '/usuarios',   ico: '👥', lbl: 'Usuarios',   roles: ['ADMIN'] },
   { id: '/duplicados', ico: '🔍', lbl: 'Duplicados',  roles: ['ADMIN'] },
@@ -54,7 +55,7 @@ export default function Sidebar() {
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
     if (user.role === 'VIEWER') {
-      const restricted = ['/usuarios','/duplicados','/control-calidad']
+      const restricted = ['/usuarios','/duplicados','/control-calidad','/tabla/collar_ejecutados']
       return !restricted.includes(item.id) && !item.section
     }
     if (user.role !== 'USER') return true
@@ -62,6 +63,10 @@ export default function Sidebar() {
     // Control de Calidad: permiso propio
     if (item.id === '/control-calidad')
       return user.tables.includes('all') || user.tables.includes('control_calidad')
+
+    // Collar Ejecutados: solo ADMIN (ya filtrado arriba) o permiso explícito
+    if (item.id === '/tabla/collar_ejecutados')
+      return user.tables.includes('all') || user.tables.includes('collar_ejecutados')
 
     if (['/dashboard','/resumen','/exportar','/mapa','/quicklog'].includes(item.id)) return true
 

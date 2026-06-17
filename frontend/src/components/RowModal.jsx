@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { DEFS, NUM_COLS, REQUIRED, validateClient, computeAuto, today } from '../utils/tableDefs'
 import { useAuth } from '../context/AuthContext'
 
-export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, initData, existingRows, ddhids }) {
+export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, initData, existingRows, ddhids, topografos }) {
   const { user } = useAuth()
   const def = DEFS[tkey]
   const formCols = def.formCols || def.cols.filter(c => c !== 'Geologo')
@@ -140,6 +140,8 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     if (def.geo) finalData.Geologo = user.name
     if (tkey === 'muestras_densidad' && codigoMuestra && !initData?.Codigo_Muestra)
       finalData.Codigo_Muestra = codigoMuestra
+    if (tkey === 'collar_ejecutados' && codTopografo)
+      finalData.Cod_Topografo = codTopografo
     try {
       await onSave(finalData)
     } finally {
@@ -188,6 +190,18 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       )
     }
 
+    // collar_ejecutados: TOPOGRAFO como dropdown de la tabla topografos
+    if (col === 'TOPOGRAFO' && tkey === 'collar_ejecutados') {
+      return (
+        <select {...base}>
+          <option value="">— Seleccionar Topógrafo —</option>
+          {(topografos||[]).map(t => (
+            <option key={t.id} value={t.Topografo}>{t.Topografo} ({t.COD_TOPO})</option>
+          ))}
+        </select>
+      )
+    }
+
     if (['Fecha','F_Envio','F_Solicitud','F_Resultados'].includes(col))
       return <input type="date" {...base} />
     if (['HORA','Desde','Hasta'].includes(col))
@@ -222,6 +236,17 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     }
   }
 
+  // Código de topógrafo automático (collar_ejecutados)
+  let codTopografo = null
+  if (tkey === 'collar_ejecutados') {
+    if (initData?.Cod_Topografo) {
+      codTopografo = initData.Cod_Topografo
+    } else if (form.TOPOGRAFO) {
+      const topo = (topografos||[]).find(t => t.Topografo === form.TOPOGRAFO)
+      if (topo) codTopografo = topo.COD_TOPO
+    }
+  }
+
   // Campos automáticos a mostrar
   const autoPreview = []
   if (tkey === 'perforacion') {
@@ -238,8 +263,7 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
     if (autoVals.Horas   !== undefined) autoPreview.push({ key:'Horas',   val: autoVals.Horas + ' h' })
   }
   if (tkey === 'muestras_densidad') {
-    if (codigoMuestra)                   autoPreview.push({ key:'Codigo_Muestra', val: codigoMuestra })
-    if (autoVals.Longitud !== undefined)  autoPreview.push({ key:'Longitud',       val: autoVals.Longitud + ' m' })
+    if (autoVals.Longitud !== undefined)  autoPreview.push({ key:'Longitud', val: autoVals.Longitud + ' m' })
   }
 
   const totalErrors = Object.keys(validateClient(tkey, form, existingRows, initData?.id)).length
@@ -263,14 +287,30 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
         {/* Campos editables */}
         <div className="fgrid">
           {formCols.map(col => (
-            <div key={col} className="fg">
-              <label>
-                {col}
-                {REQUIRED[tkey]?.includes(col) && <span style={{ color:'var(--red)', marginLeft:2 }}>*</span>}
-              </label>
-              {fieldFor(col)}
-              {errors[col] && <span className="ferr">⚠ {errors[col]}</span>}
-            </div>
+            <React.Fragment key={col}>
+              <div className="fg">
+                <label>
+                  {col}
+                  {REQUIRED[tkey]?.includes(col) && <span style={{ color:'var(--red)', marginLeft:2 }}>*</span>}
+                </label>
+                {fieldFor(col)}
+                {errors[col] && <span className="ferr">⚠ {errors[col]}</span>}
+              </div>
+              {tkey === 'muestras_densidad' && col === 'DDHID' && codigoMuestra && (
+                <div className="fg">
+                  <label>Código de Muestra (auto)</label>
+                  <input readOnly value={codigoMuestra} style={{ color:'var(--grn)' }} />
+                  <span className="fauto">✓ S + DDHID(7) + correlativo</span>
+                </div>
+              )}
+              {tkey === 'collar_ejecutados' && col === 'TOPOGRAFO' && codTopografo && (
+                <div className="fg">
+                  <label>Cod. Topógrafo (auto)</label>
+                  <input readOnly value={codTopografo} style={{ color:'var(--grn)' }} />
+                  <span className="fauto">✓ Código del topógrafo seleccionado</span>
+                </div>
+              )}
+            </React.Fragment>
           ))}
 
           {/* Campos automáticos (readonly) */}

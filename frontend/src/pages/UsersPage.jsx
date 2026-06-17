@@ -5,11 +5,12 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
 // Tablas regulares + módulos especiales asignables
-const ALL_TABLE_KEYS = Object.keys(DEFS)
+const ALL_TABLE_KEYS = Object.keys(DEFS).filter(k => k !== 'collar_ejecutados')
 const TABLE_LABELS = {
   ...Object.fromEntries(Object.entries(DEFS).map(([k,v])=>[k,v.label])),
-  quicklog:        '📋 Quick Log',
-  control_calidad: '✅ Control de Calidad',
+  quicklog:          '📋 Quick Log',
+  control_calidad:   '✅ Control de Calidad',
+  collar_ejecutados: '📍 Collar Ejecutados',
 }
 
 function UserModal({ user, onClose, onSave }) {
@@ -33,7 +34,8 @@ function UserModal({ user, onClose, onSave }) {
 
   const isAllAccess = form.role === 'ADMIN' || form.role === 'SUPERVISOR'
   const isViewer    = form.role === 'VIEWER'
-  const assignableKeys = [...ALL_TABLE_KEYS, 'quicklog', 'control_calidad']
+  const SPECIAL_KEYS   = ['quicklog', 'control_calidad', 'collar_ejecutados']
+  const assignableKeys = [...ALL_TABLE_KEYS, ...SPECIAL_KEYS]
 
   return (
     <div className="m-bg" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -76,7 +78,7 @@ function UserModal({ user, onClose, onSave }) {
             {/* Módulos especiales */}
             <div style={{marginBottom:10,paddingBottom:10,borderBottom:'1px solid var(--brd)'}}>
               <span style={{fontSize:11,color:'var(--mut)',display:'block',marginBottom:6}}>Módulos especiales</span>
-              {['quicklog','control_calidad'].map(k => (
+              {SPECIAL_KEYS.map(k => (
                 <span key={k}
                   className={`chip ${form.tables.includes(k) ? 'on' : ''}`}
                   onClick={()=>togTable(k)}
@@ -89,7 +91,7 @@ function UserModal({ user, onClose, onSave }) {
             {/* Tablas regulares */}
             <div>
               <span style={{fontSize:11,color:'var(--mut)',display:'block',marginBottom:6}}>Tablas de registro</span>
-              {assignableKeys.filter(k => k!=='quicklog' && k!=='control_calidad').map(k => (
+              {assignableKeys.filter(k => !SPECIAL_KEYS.includes(k)).map(k => (
                 <span key={k} className={`chip ${form.tables.includes(k)?'on':''}`} onClick={()=>togTable(k)}>
                   {TABLE_LABELS[k]}
                 </span>
