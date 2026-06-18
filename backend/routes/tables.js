@@ -86,7 +86,10 @@ function canWrite(req, res, next) {
     return res.status(403).json({ error: 'Sin permiso para esta tabla' })
   }
   if (u.role === 'ADMIN' || u.role === 'SUPERVISOR') return next()
-  if (u.tables.includes('all') || u.tables.includes(req.params.table)) return next()
+  const t = req.params.table
+  if ((u.tables||[]).includes('all') || (u.tables||[]).includes(t)) return next()
+  // muestras_densidad: permiso de l_geologico también otorga acceso
+  if (t === 'muestras_densidad' && (u.tables||[]).includes('l_geologico')) return next()
   return res.status(403).json({ error: 'Sin permiso para escribir en esta tabla' })
 }
 
