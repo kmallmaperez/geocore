@@ -27,6 +27,7 @@ const NAV = [
   { section: 'Control' },
   { id: '/control-calidad',           ico: '✅',  lbl: 'Control de Calidad' },
   { id: '/tabla/collar_ejecutados',   ico: '📍',  lbl: 'Collar Ejecutados' },
+  { id: '/drill-log', ico: '🗂️', lbl: 'DrillLog PDF' },
   { section: 'Sistema' },
   { id: '/usuarios',   ico: '👥', lbl: 'Usuarios',   roles: ['ADMIN'] },
   { id: '/duplicados', ico: '🔍', lbl: 'Duplicados',  roles: ['ADMIN'] },
@@ -55,12 +56,14 @@ export default function Sidebar() {
   function canSee(item) {
     if (item.roles && !item.roles.includes(user.role)) return false
     if (user.role === 'VIEWER') {
-      const restricted = ['/usuarios','/duplicados','/control-calidad','/tabla/collar_ejecutados']
+      const restricted = ['/usuarios','/duplicados','/control-calidad','/tabla/collar_ejecutados','/drill-log']
       return !restricted.includes(item.id) && !item.section
     }
     if (user.role === 'SUPERVISOR') {
       if (item.id === '/tabla/collar_ejecutados')
         return (user.tables||[]).includes('all') || (user.tables||[]).includes('collar_ejecutados')
+      if (item.id === '/drill-log')
+        return (user.tables||[]).includes('all') || (user.tables||[]).includes('drill_log')
       return true
     }
     if (user.role !== 'USER') return true
@@ -72,6 +75,10 @@ export default function Sidebar() {
     // Collar Ejecutados: solo ADMIN (ya filtrado arriba) o permiso explícito
     if (item.id === '/tabla/collar_ejecutados')
       return user.tables.includes('all') || user.tables.includes('collar_ejecutados')
+
+    // DrillLog PDF: solo ADMIN o permiso explícito
+    if (item.id === '/drill-log')
+      return user.tables.includes('all') || user.tables.includes('drill_log')
 
     if (['/dashboard','/resumen','/exportar','/mapa','/quicklog'].includes(item.id)) return true
 

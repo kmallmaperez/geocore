@@ -12,6 +12,7 @@ import MapaPage        from './pages/MapaPage'
 import DuplicadosPage  from './pages/DuplicadosPage'
 import QuickLogPage       from './pages/QuickLogPage'
 import ControlCalidadPage from './pages/ControlCalidadPage'
+import DrillLogPage        from './pages/DrillLogPage'
 
 // ── Selector de proyecto (Mina / Exploraciones / Ambos) ──────────
 function ProyectoSelector() {
@@ -101,6 +102,7 @@ function AppRoutes() {
       <Route path="/quicklog"      element={<PrivateLayout><QuickLogPage /></PrivateLayout>} />
       <Route path="/duplicados"     element={<PrivateLayout roles={['ADMIN']}><DuplicadosPage /></PrivateLayout>} />
       <Route path="/control-calidad" element={<PrivateLayout><ControlCalidadPage /></PrivateLayout>} />
+      <Route path="/drill-log"       element={<PrivateLayout><DrillLogPage /></PrivateLayout>} />
       <Route path="*"            element={<Navigate to="/" replace />} />
     </Routes>
   )

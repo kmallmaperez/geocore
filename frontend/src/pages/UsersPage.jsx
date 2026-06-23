@@ -11,6 +11,7 @@ const TABLE_LABELS = {
   quicklog:          '📋 Quick Log',
   control_calidad:   '✅ Control de Calidad',
   collar_ejecutados: '📍 Collar Ejecutados',
+  drill_log:         '🗂️ DrillLog PDF',
 }
 
 function UserModal({ user, onClose, onSave }) {
@@ -35,8 +36,8 @@ function UserModal({ user, onClose, onSave }) {
   const isAdmin      = form.role === 'ADMIN'
   const isSupervisor = form.role === 'SUPERVISOR'
   const isViewer     = form.role === 'VIEWER'
-  const SPECIAL_KEYS        = ['quicklog', 'control_calidad', 'collar_ejecutados']
-  const SUPERVISOR_RESTRICTED = ['control_calidad', 'collar_ejecutados']
+  const SPECIAL_KEYS          = ['quicklog', 'control_calidad', 'collar_ejecutados', 'drill_log']
+  const SUPERVISOR_RESTRICTED = ['control_calidad', 'collar_ejecutados', 'drill_log']
   const assignableKeys = [...ALL_TABLE_KEYS, ...SPECIAL_KEYS]
 
   return (
