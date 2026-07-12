@@ -12,6 +12,7 @@ const mapaRoutes    = require('./routes/mapa')
 const quicklogRoutes    = require('./routes/quicklog')
 const programaPerfRoutes = require('./routes/programaPerf')
 const controlCalidadRoutes = require('./routes/controlCalidad')
+const proyectosRoutes      = require('./routes/proyectos')
 
 const app = express()
 
@@ -30,6 +31,7 @@ app.use('/api/mapa',   mapaRoutes)
 app.use('/api/quicklog', quicklogRoutes)
 app.use('/api/programa-perf',   programaPerfRoutes)
 app.use('/api/control-calidad', controlCalidadRoutes)
+app.use('/api/proyectos',      proyectosRoutes)
 app.use('/api/import', importRoutes)
 
 app.get('/', (req, res) => res.json({ message: 'GeoCore API activa', version: '2.0' }))

@@ -3,7 +3,7 @@ import { DEFS, NUM_COLS, REQUIRED, validateClient, computeAuto, today } from '..
 import { useAuth } from '../context/AuthContext'
 
 export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, initData, existingRows, ddhids, topografos }) {
-  const { user } = useAuth()
+  const { user, proyectos } = useAuth()
   const def = DEFS[tkey]
   const formCols = def.formCols || def.cols.filter(c => c !== 'Geologo')
 
@@ -37,7 +37,7 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
       if (initData) {
         f[c] = DATE_FIELDS.includes(c) ? cleanDate(initData[c]) : (initData[c] ?? '')
       } else {
-        if (c === 'tipo_proyecto') f[c] = 'Mina'
+        if (c === 'tipo_proyecto') f[c] = proyectos[0] || 'Mina'
         else f[c] = DATE_FIELDS.includes(c) ? today() : c === 'HORA' ? new Date().toTimeString().slice(0,5) : ''
       }
     })
@@ -213,13 +213,18 @@ export default function RowModal({ tkey, onClose, onSave, onDelete, canDelete, i
         style={{color:'var(--grn)'}} onChange={()=>{}} onBlur={()=>{}}/>
     if (col === 'OBSERVACIONES')
       return <textarea {...base} rows={2} style={{resize:'vertical',width:'100%',background:'var(--bg)',border:'1px solid var(--brd)',borderRadius:6,padding:'6px 8px',color:'var(--txt)',fontSize:13,outline:'none'}}/>
-    if (col === 'tipo_proyecto')
+    if (col === 'tipo_proyecto') {
+      const opts = proyectos && proyectos.length ? proyectos : ['Mina', 'Exploraciones']
       return (
         <select {...base}>
-          <option value="Mina">⛏ Mina</option>
-          <option value="Exploraciones">🔭 Exploraciones</option>
+          {opts.map(p => (
+            <option key={p} value={p}>
+              {p === 'Mina' ? '⛏ ' : p === 'Exploraciones' ? '🔭 ' : '📁 '}{p}
+            </option>
+          ))}
         </select>
       )
+    }
     return <input type={NUM_COLS.has(col) ? 'number' : 'text'} step="0.01" {...base} />
   }
 

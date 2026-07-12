@@ -5,27 +5,29 @@ const { authMiddleware, requireRole } = require('../middleware/auth')
 
 const router = express.Router()
 
-// Migración: columna tipo_acceso
+// Migraciones de columnas
 db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tipo_acceso TEXT DEFAULT 'Ambos'`).catch(() => {})
+db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS proyectos_acceso TEXT[] DEFAULT '{}'`).catch(() => {})
 
 router.get('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
-    const r = await db.query('SELECT id,name,email,role,tables,active,tipo_acceso FROM users ORDER BY id')
+    const r = await db.query('SELECT id,name,email,role,tables,active,tipo_acceso,proyectos_acceso FROM users ORDER BY id')
     res.json(r.rows)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
 router.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  const { name, email, password, role, tables, tipo_acceso } = req.body
+  const { name, email, password, role, tables, proyectos_acceso } = req.body
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: 'Nombre, email, contraseña y rol son requeridos' })
   try {
     const hash    = bcrypt.hashSync(password, 8)
     const tbls    = (role === 'ADMIN' || role === 'SUPERVISOR') ? ['all'] : (tables || [])
-    const acceso  = tipo_acceso || 'Ambos'
+    const pAcceso = Array.isArray(proyectos_acceso) ? proyectos_acceso : []
+    const acceso  = pAcceso.length === 1 ? pAcceso[0] : 'Ambos'
     const r = await db.query(
-      `INSERT INTO users (name,email,password,role,tables,active,tipo_acceso) VALUES ($1,$2,$3,$4,$5,true,$6) RETURNING id,name,email,role,tables,active,tipo_acceso`,
-      [name, email, hash, role, tbls, acceso]
+      `INSERT INTO users (name,email,password,role,tables,active,tipo_acceso,proyectos_acceso) VALUES ($1,$2,$3,$4,$5,true,$6,$7) RETURNING id,name,email,role,tables,active,tipo_acceso,proyectos_acceso`,
+      [name, email, hash, role, tbls, acceso, pAcceso]
     )
     res.status(201).json(r.rows[0])
   } catch (err) {
@@ -35,7 +37,7 @@ router.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
 })
 
 router.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  const { name, email, password, role, tables, active, tipo_acceso } = req.body
+  const { name, email, password, role, tables, active, proyectos_acceso } = req.body
   const id = parseInt(req.params.id)
   try {
     const curr = await db.query('SELECT * FROM users WHERE id=$1', [id])
@@ -45,10 +47,13 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     const tbls = role
       ? ((role === 'ADMIN' || role === 'SUPERVISOR') ? ['all'] : (tables || u.tables))
       : u.tables
-    const acceso = tipo_acceso !== undefined ? tipo_acceso : (u.tipo_acceso || 'Ambos')
+    const pAcceso = proyectos_acceso !== undefined
+      ? (Array.isArray(proyectos_acceso) ? proyectos_acceso : [])
+      : (u.proyectos_acceso || [])
+    const acceso = pAcceso.length === 1 ? pAcceso[0] : 'Ambos'
     const r = await db.query(
-      `UPDATE users SET name=$1,email=$2,password=$3,role=$4,tables=$5,active=$6,tipo_acceso=$7 WHERE id=$8 RETURNING id,name,email,role,tables,active,tipo_acceso`,
-      [name||u.name, email||u.email, hash, role||u.role, tbls, active!==undefined?active:u.active, acceso, id]
+      `UPDATE users SET name=$1,email=$2,password=$3,role=$4,tables=$5,active=$6,tipo_acceso=$7,proyectos_acceso=$8 WHERE id=$9 RETURNING id,name,email,role,tables,active,tipo_acceso,proyectos_acceso`,
+      [name||u.name, email||u.email, hash, role||u.role, tbls, active!==undefined?active:u.active, acceso, pAcceso, id]
     )
     res.json(r.rows[0])
   } catch (err) { res.status(500).json({ error: err.message }) }

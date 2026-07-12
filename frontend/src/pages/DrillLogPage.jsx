@@ -123,7 +123,14 @@ function renderPages(rows, holeName, headers) {
     let ry=chY+COL_HDR_H
     pages[pi].forEach((row,ri)=>{
       const rh=row._h
-      c.fillStyle=ri%2===0?'#ffffff':'#f3f3f3'; c.fillRect(MAR,ry,UW,rh)
+      const fromV=parseFloat(row[fc]||0), toV=parseFloat(row[tc]||0), intLen=toV-fromV
+      const isAbnormal = intLen > 2 || (intLen > 0 && intLen < 0.5)
+      if (isAbnormal) {
+        c.fillStyle=ri%2===0?'#ffe0e0':'#ffd0d0'
+      } else {
+        c.fillStyle=ri%2===0?'#ffffff':'#f3f3f3'
+      }
+      c.fillRect(MAR,ry,UW,rh)
       xc=MAR
       COLS.forEach(cd=>{
         let val=''
@@ -374,10 +381,13 @@ export default function DrillLogPage() {
                     {previewRows.map((row,ri)=>{
                       const fcol=colKey(headers,'Depth_From'), tcol=colKey(headers,'Depth_To')
                       const f=parseFloat(row[fcol]||0), t=parseFloat(row[tcol]||0)
+                      const intLen=t-f
+                      const isAbnormal = intLen > 2 || (intLen > 0 && intLen < 0.5)
                       return (
-                        <tr key={ri}>
+                        <tr key={ri} style={isAbnormal ? {background:'rgba(255,80,80,.13)'} : {}}>
                           {DISP_COLS.map(cd=>{
-                            const val = cd.src===null ? fmt(t-f) : (row[colKey(headers,cd.src)]||'')
+                            const rawVal = cd.src===null ? fmt(t-f) : (row[colKey(headers,cd.src)]||'')
+                            const val = rawVal
                             if(cd.pal){
                               const rgb=cd.pal[parseInt(val)]
                               if(rgb) return (
@@ -387,6 +397,8 @@ export default function DrillLogPage() {
                                 </td>
                               )
                             }
+                            if(cd.src===null && isAbnormal)
+                              return <td key={cd.label} style={{color:'#e53535',fontWeight:700}}>{val} ⚠</td>
                             return <td key={cd.label}>{val}</td>
                           })}
                         </tr>
@@ -397,6 +409,11 @@ export default function DrillLogPage() {
               </div>
             </div>
           )}
+
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, fontSize:11, color:'var(--mut)', fontFamily:'monospace' }}>
+            <span style={{ display:'inline-block', width:14, height:14, background:'rgba(255,80,80,.25)', border:'1px solid rgba(229,53,53,.5)', borderRadius:2, flexShrink:0 }}/>
+            Fila roja = intervalo &gt;2 m o &lt;0.5 m (se resalta igual en el PDF)
+          </div>
 
           <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
             <button

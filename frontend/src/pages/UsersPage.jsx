@@ -14,14 +14,14 @@ const TABLE_LABELS = {
   drill_log:         '🗂️ DrillLog PDF',
 }
 
-function UserModal({ user, onClose, onSave }) {
+function UserModal({ user, onClose, onSave, proyectos }) {
   const [form, setForm] = useState({
-    name:         user?.name         || '',
-    email:        user?.email        || '',
-    password:     '',
-    role:         user?.role         || 'USER',
-    tables:       user?.tables       || [],
-    tipo_acceso:  user?.tipo_acceso  || 'Ambos',
+    name:             user?.name             || '',
+    email:            user?.email            || '',
+    password:         '',
+    role:             user?.role             || 'USER',
+    tables:           user?.tables           || [],
+    proyectos_acceso: user?.proyectos_acceso || [],
   })
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })) }
@@ -31,6 +31,21 @@ function UserModal({ user, onClose, onSave }) {
       ...p,
       tables: p.tables.includes(k) ? p.tables.filter(x => x !== k) : [...p.tables, k]
     }))
+  }
+
+  function togProyecto(p) {
+    setForm(prev => ({
+      ...prev,
+      proyectos_acceso: prev.proyectos_acceso.includes(p)
+        ? prev.proyectos_acceso.filter(x => x !== p)
+        : [...prev.proyectos_acceso, p]
+    }))
+  }
+
+  function proyIco(p) {
+    if (p === 'Mina') return '⛏'
+    if (p === 'Exploraciones') return '🔭'
+    return '📁'
   }
 
   const isAdmin      = form.role === 'ADMIN'
@@ -57,14 +72,34 @@ function UserModal({ user, onClose, onSave }) {
               <option value="VIEWER">VIEWER</option>
             </select>
           </div>
-          <div className="fg">
-            <label>Acceso a Proyecto</label>
-            <select value={form.tipo_acceso} onChange={e=>set('tipo_acceso',e.target.value)}>
-              <option value="Ambos">🔀 Ambos (Mina + Exploraciones)</option>
-              <option value="Mina">⛏ Solo Mina</option>
-              <option value="Exploraciones">🔭 Solo Exploraciones</option>
-            </select>
-          </div>
+          {!isAdmin && (
+            <div className="fg">
+              <label>Proyectos visibles</label>
+              {(proyectos||[]).length === 0
+                ? <span style={{fontSize:12,color:'var(--mut)'}}>Sin proyectos creados</span>
+                : <div style={{display:'flex',flexDirection:'column',gap:5,marginTop:4}}>
+                    {(proyectos||[]).map(p => (
+                      <label key={p} style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer',fontSize:13}}>
+                        <input
+                          type="checkbox"
+                          checked={form.proyectos_acceso.includes(p)}
+                          onChange={()=>togProyecto(p)}
+                          style={{cursor:'pointer'}}
+                        />
+                        {proyIco(p)} {p}
+                      </label>
+                    ))}
+                    <span style={{fontSize:11,color:'var(--mut)',marginTop:2}}>
+                      {form.proyectos_acceso.length === 0
+                        ? '⚠ Sin selección: verá todos los proyectos'
+                        : form.proyectos_acceso.length === 1
+                          ? `Bloqueado a ${form.proyectos_acceso[0]}`
+                          : `Puede alternar entre ${form.proyectos_acceso.length} proyectos`}
+                    </span>
+                  </div>
+              }
+            </div>
+          )}
         </div>
 
         {isViewer && (
@@ -137,7 +172,7 @@ function UserModal({ user, onClose, onSave }) {
 }
 
 export default function UsersPage() {
-  const { user: me } = useAuth()
+  const { user: me, proyectos } = useAuth()
   const { toast, show } = useToast()
   const [users,     setUsers]     = useState([])
   const [showModal, setShowModal] = useState(false)
@@ -211,9 +246,16 @@ export default function UsersPage() {
                   <td style={{color:'var(--mut)'}}>{u.email}</td>
                   <td><span className={`bdg ${roleCls(u.role)}`}>{u.role}</span></td>
                   <td>
-                    <span style={{fontSize:12, color:'var(--txt)'}}>
-                      {u.tipo_acceso === 'Mina' ? '⛏ Mina' : u.tipo_acceso === 'Exploraciones' ? '🔭 Explor.' : '🔀 Ambos'}
-                    </span>
+                    {u.role === 'ADMIN'
+                      ? <span style={{fontSize:12,color:'var(--mut)'}}>🔀 Todos</span>
+                      : u.proyectos_acceso?.length
+                        ? u.proyectos_acceso.map(p => (
+                            <span key={p} style={{fontSize:12,color:'var(--txt)',marginRight:6,whiteSpace:'nowrap'}}>
+                              {p==='Mina'?'⛏':p==='Exploraciones'?'🔭':'📁'} {p}
+                            </span>
+                          ))
+                        : <span style={{fontSize:12,color:'var(--mut)'}}>🔀 Todos</span>
+                    }
                   </td>
                   <td style={{maxWidth:320}}>{permisoLabel(u)}</td>
                   <td><span className={`bdg ${u.active?'b-act':'b-ina'}`}>{u.active?'Activo':'Inactivo'}</span></td>
@@ -233,7 +275,7 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
-      {showModal && <UserModal user={editUser} onClose={()=>{setShowModal(false);setEditUser(null)}} onSave={handleSave}/>}
+      {showModal && <UserModal user={editUser} onClose={()=>{setShowModal(false);setEditUser(null)}} onSave={handleSave} proyectos={proyectos}/>}
     </div>
   )
 }
