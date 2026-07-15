@@ -9,13 +9,14 @@ import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
 import PlataformaModal from '../components/PlataformaModal'
 
-const EQUIPOS_PG = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A']
+const EQUIPOS_PG = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A', 'HCR-8']
 const EQUIPO_COLOR = {
-  'HYDX-5A-05': { bg:'rgba(59,130,246,.18)',  color:'#60a5fa' },
-  'HYDX-5A-06': { bg:'rgba(168,85,247,.18)',  color:'#c084fc' },
+  'HYDX-5A-05': { bg:'rgba(59,130,246,.18)',  color:'#60a5fa' }, 
+  'HYDX-5A-06': { bg:'rgba(168,85,247,.18)',  color:'#c084fc' }, 
   'HYDX-5A-07': { bg:'rgba(245,158,11,.18)',  color:'#fbbf24' },
-  'YN-1500':    { bg:'rgba(16,185,129,.18)',   color:'#34d399' },
-  'XZCR-N18A':  { bg:'rgba(239,68,68,.18)',    color:'#f87171' },
+  'YN-1500':    { bg:'rgba(16,185,129,.18)',  color:'#34d399' },  
+  'XZCR-N18A':  { bg:'rgba(239,68,68,.18)',   color:'#f87171' }, 
+  'HCR-8':      { bg:'rgba(37,99,235,.18)',   color:'#3b82f6' },
 }
 
 const TIENE_REPORTE = new Set([

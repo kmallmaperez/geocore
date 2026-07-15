@@ -292,7 +292,7 @@ router.get('/download', authMiddleware, async (req, res) => {
 
       // ── Hoja "Perforación por Equipo" inmediatamente después de Perforación ──
       if (tkey === 'perforacion') {
-        const EQUIPOS = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A']
+        const EQUIPOS = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A', 'HCR-8']
 
         // Agrupar Total_Dia por fecha y equipo
         const equipoMap = pgEqMap  // reuse the map built above
