@@ -17,7 +17,7 @@ const EQUIPO_COLOR = {
   'YN-1500':    { bg:'rgba(16,185,129,.18)',  color:'#34d399' },  
   'XZCR-N18A':  { bg:'rgba(239,68,68,.18)',   color:'#f87171' }, 
   'HCR-8':      { bg:'rgba(37,99,235,.18)',   color:'#3b82f6' },
-  'C6':         { bg:'rgba(235,37,232,.18)',   color:'#51f63b' },
+  'C6':         { bg:'rgba(6,182,212,.18)',   color:'#22d3ee' },
 }
 
 const TIENE_REPORTE = new Set([
