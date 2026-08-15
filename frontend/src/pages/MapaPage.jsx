@@ -66,6 +66,7 @@ export default function MapaPage() {
   const [activeSlot, setActiveSlot] = useState(1)    // 1, 2 or 3
   // Labels toggle
   const [showLabels, setShowLabels] = useState(true)
+  const [filtroSondaje, setFiltroSondaje] = useState('')
   // filtro CSS: ocultar estados por clase
   const [ocultar,    setOcultar]    = useState({Completado:false,'En Proceso':false,Plataforma:false,Pendiente:false})
 
@@ -366,6 +367,14 @@ export default function MapaPage() {
 
   const tieneImagen = !!imgDataUrl
   const calibrado   = transform !== null
+  const filtroNorm = (filtroSondaje || '').trim().toLowerCase()
+  const sondajesFiltrados = !filtroNorm
+    ? sondajes
+    : sondajes.filter(s => {
+        const matchId = String(s.DDHID || '').trim().toLowerCase() === filtroNorm
+        const matchPlat = String(s.PLATAFORMA || '').trim().toLowerCase() === filtroNorm
+        return matchId || matchPlat
+      })
 
   if (loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,color:'var(--mut)'}}>Cargando...</div>
 
@@ -475,10 +484,34 @@ export default function MapaPage() {
       {/* Leyenda / filtros */}
       {tieneImagen && (
         <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginRight:6,background:'var(--sur)',border:'1px solid var(--brd)',borderRadius:10,padding:'6px 10px',minWidth:220}}>
+            <span style={{fontSize:12,color:'var(--mut)'}}>🔎</span>
+            <input
+              list="sondaje-filter-options"
+              value={filtroSondaje}
+              onChange={e => setFiltroSondaje(e.target.value)}
+              placeholder="Buscar DDHID o plataforma"
+              style={{background:'transparent',border:'none',outline:'none',color:'var(--txt)',fontSize:12,width:'100%'}}
+            />
+            <datalist id="sondaje-filter-options">
+              {sondajes.map(s => (
+                <option key={`${s.DDHID}-${s.PLATAFORMA}`} value={s.DDHID || s.PLATAFORMA} />
+              ))}
+            </datalist>
+            {filtroSondaje && (
+              <button
+                className="btn btn-out btn-sm"
+                onClick={() => setFiltroSondaje('')}
+                style={{padding:'2px 8px',fontSize:11,marginLeft:4}}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
           {ESTADOS.map(est => {
             const col   = COLORES[est]
-            const total = sondajes.filter(s=>s.ESTADO===est).length
-            const conC  = sondajes.filter(s=>s.ESTADO===est&&s.ESTE&&s.NORTE).length
+            const total = sondajesFiltrados.filter(s=>s.ESTADO===est).length
+            const conC  = sondajesFiltrados.filter(s=>s.ESTADO===est&&s.ESTE&&s.NORTE).length
             const label = (est==='Pendiente'||est==='Plataforma') ? `${conC}/${total}` : conC
             const activo = !ocultar[est]
             return (
@@ -496,7 +529,7 @@ export default function MapaPage() {
             )
           })}
           {calibrado
-            ? <span style={{fontSize:11,color:'var(--grn)'}}>✅ {sondajes.filter(s=>s.ESTE&&s.NORTE).length} con coords · {sondajes.filter(s=>!s.ESTE||!s.NORTE).length} sin</span>
+            ? <span style={{fontSize:11,color:'var(--grn)'}}>✅ {sondajesFiltrados.filter(s=>s.ESTE&&s.NORTE).length} con coords · {sondajesFiltrados.filter(s=>!s.ESTE||!s.NORTE).length} sin</span>
             : isAdmin && <span style={{fontSize:11,color:'var(--mut)',fontStyle:'italic'}}>⚠ Faltan {Math.max(0,3-puntosCtrl.length)} puntos de georef</span>
           }
           <span style={{fontSize:11,color:'var(--mut)',marginLeft:'auto'}}>🖱 Scroll · Arrastra · 📱 Pellizca</span>
@@ -542,7 +575,7 @@ export default function MapaPage() {
 
             {/* ── SONDAJES — filtro con mostrar[] ── */}
 
-            {calibrado && imgDispW>0 && sondajes.map(s => {
+            {calibrado && imgDispW>0 && sondajesFiltrados.map(s => {
               // ocultar con CSS — no con return null
               if (!s.ESTE || !s.NORTE) return null
               const pos = posDisplay(s)
