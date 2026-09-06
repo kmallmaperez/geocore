@@ -1018,6 +1018,20 @@ router.delete('/:table/:id', authMiddleware, checkTable, async (req, res) => {
         return res.status(403).json({ error: 'Solo puedes eliminar tus propios registros' })
     }
 
+    // equipos_perforacion: no permitir eliminar un equipo que ya está asignado
+    // a sondajes en Programa General (evita romper la referencia usada en otras tablas/reportes)
+    if (table === 'equipos_perforacion') {
+      const uso = await db.query(
+        `SELECT COUNT(*)::int AS cnt FROM programa_general WHERE "EQUIPO" = $1`,
+        [curr.rows[0].EQUIPO]
+      )
+      if (uso.rows[0].cnt > 0) {
+        return res.status(409).json({
+          error: `No se puede eliminar "${curr.rows[0].EQUIPO}": está asignado a ${uso.rows[0].cnt} sondaje(s) en Programa General. Reasigna esos sondajes a otro equipo primero.`
+        })
+      }
+    }
+
     const r = await db.query(`DELETE FROM ${table} WHERE id=$1 RETURNING id`, [id])
     res.json({ success: true })
   } catch (err) { res.status(500).json({ error: err.message }) }

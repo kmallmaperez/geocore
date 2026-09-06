@@ -520,13 +520,15 @@ function EquiposModal({ equipos, onClose, onChange, show }) {
   }
 
   async function handleDelete(t) {
-    if (!window.confirm(`¿Eliminar equipo "${t.EQUIPO}"? Los registros que ya lo usan conservarán el nombre.`)) return
+    if (!window.confirm(`¿Eliminar equipo "${t.EQUIPO}"?`)) return
     try {
       await api.delete(`/tables/equipos_perforacion/${t.id}`)
       const updated = list.filter(x => x.id !== t.id)
       setList(updated); onChange(updated)
       show('Eliminado ✓', 'ok')
-    } catch { show('Error al eliminar', 'err') }
+    } catch (err) {
+      show(err.response?.data?.error || 'Error al eliminar', 'err')
+    }
   }
 
   function startEdit(t) {
