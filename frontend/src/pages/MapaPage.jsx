@@ -371,8 +371,8 @@ export default function MapaPage() {
   const sondajesFiltrados = !filtroNorm
     ? sondajes
     : sondajes.filter(s => {
-        const matchId = String(s.DDHID || '').trim().toLowerCase() === filtroNorm
-        const matchPlat = String(s.PLATAFORMA || '').trim().toLowerCase() === filtroNorm
+        const matchId = String(s.DDHID || '').trim().toLowerCase().includes(filtroNorm)
+        const matchPlat = String(s.PLATAFORMA || '').trim().toLowerCase().includes(filtroNorm)
         return matchId || matchPlat
       })
 

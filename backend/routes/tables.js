@@ -43,13 +43,31 @@ db.query(`
     created_at       TIMESTAMPTZ DEFAULT NOW()
   )
 `).catch(() => {})
+db.query(`
+  CREATE TABLE IF NOT EXISTS equipos_perforacion (
+    id         SERIAL PRIMARY KEY,
+    "EQUIPO"   TEXT NOT NULL UNIQUE,
+    "COLOR"    TEXT NOT NULL DEFAULT '#3b82f6',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )
+`).then(() => db.query(`
+  INSERT INTO equipos_perforacion ("EQUIPO","COLOR") VALUES
+    ('HYDX-5A-05','#60a5fa'),
+    ('HYDX-5A-06','#c084fc'),
+    ('HYDX-5A-07','#fbbf24'),
+    ('YN-1500','#34d399'),
+    ('XZCR-N18A','#f87171'),
+    ('HCR-8','#3b82f6'),
+    ('C6','#22d3ee')
+  ON CONFLICT ("EQUIPO") DO NOTHING
+`)).catch(() => {})
 
 // Tablas válidas
 const VALID_TABLES = [
   'programa_general','perforacion','recepcion','recuperacion',
   'fotografia','l_geotecnico','l_geologico','muestreo',
   'corte','envios','batch','tormentas','muestras_densidad',
-  'collar_ejecutados','topografos'
+  'collar_ejecutados','topografos','equipos_perforacion'
 ]
 
 // Mapeo tabla → columnas (para SELECT ordenado)
@@ -69,6 +87,7 @@ const TABLE_COLS = {
   muestras_densidad:  ['Fecha','DDHID','Codigo_Muestra','From_Corrida','To_Corrida','From_Muestra','To_Muestra','Longitud','Geologo'],
   collar_ejecutados:  ['Fecha','DDHID','ESTE','NORTE','ELEVACION','TOPOGRAFO','Cod_Topografo'],
   topografos:         ['Topografo','COD_TOPO'],
+  equipos_perforacion: ['EQUIPO','COLOR'],
 }
 
 function checkTable(req, res, next) {

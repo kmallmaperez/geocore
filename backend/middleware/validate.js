@@ -27,6 +27,7 @@ const REQUIRED_FIELDS = {
   batch:             ['Envio','Batch','Sondaje'],
   tormentas:         ['Fecha','Desde','Hasta'],
   muestras_densidad: ['Fecha','DDHID','From_Muestra','To_Muestra'],
+  equipos_perforacion: ['EQUIPO','COLOR'],
 }
 
 function hasValue(v) {
@@ -187,6 +188,14 @@ function validateRow(tableName, row, existingRows = [], editId = null) {
     if (hasValue(row[field]) && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(row[field]))
       errors.push({ field, message: `"${field}" debe tener formato HH:MM` })
   })
+
+  // 8. Equipos de perforación: nombre único (case-insensitive)
+  if (tableName === 'equipos_perforacion' && hasValue(row.EQUIPO)) {
+    const dup = existingRows.some(r =>
+      r.id !== editId && String(r.EQUIPO || '').trim().toLowerCase() === String(row.EQUIPO).trim().toLowerCase()
+    )
+    if (dup) errors.push({ field: 'EQUIPO', message: `Ya existe un equipo llamado "${row.EQUIPO}"` })
+  }
 
   return errors
 }

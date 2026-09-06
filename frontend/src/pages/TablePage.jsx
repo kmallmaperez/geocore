@@ -9,15 +9,13 @@ import Toast, { useToast } from '../components/Toast'
 import api from '../utils/api'
 import PlataformaModal from '../components/PlataformaModal'
 
-const EQUIPOS_PG = ['HYDX-5A-05','HYDX-5A-06','HYDX-5A-07','YN-1500','XZCR-N18A', 'HCR-8', 'C6']
-const EQUIPO_COLOR = {
-  'HYDX-5A-05': { bg:'rgba(59,130,246,.18)',  color:'#60a5fa' }, 
-  'HYDX-5A-06': { bg:'rgba(168,85,247,.18)',  color:'#c084fc' }, 
-  'HYDX-5A-07': { bg:'rgba(245,158,11,.18)',  color:'#fbbf24' },
-  'YN-1500':    { bg:'rgba(16,185,129,.18)',  color:'#34d399' },  
-  'XZCR-N18A':  { bg:'rgba(239,68,68,.18)',   color:'#f87171' }, 
-  'HCR-8':      { bg:'rgba(37,99,235,.18)',   color:'#3b82f6' },
-  'C6':         { bg:'rgba(6,182,212,.18)',   color:'#22d3ee' },
+function hexToRgba(hex, alpha = 0.18) {
+  const h = String(hex || '').replace('#', '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  const n = parseInt(full, 16)
+  if (isNaN(n) || full.length !== 6) return { bg: 'var(--sur2)', color: 'var(--mut)' }
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  return { bg: `rgba(${r},${g},${b},${alpha})`, color: `#${full}` }
 }
 
 const TIENE_REPORTE = new Set([
@@ -50,6 +48,8 @@ export default function TablePage() {
   const [platModal, setPlatModal] = useState(null)      // DDHID abierto
   const [topografos,    setTopografos]    = useState([])
   const [topoModal,     setTopoModal]     = useState(false)
+  const [equipos,       setEquipos]       = useState([])
+  const [equipoModal,   setEquipoModal]   = useState(false)
 
   useEffect(() => {
     setRows([]); setLoading(true); setSearch(''); setFilterD(''); setSortCol(null)
@@ -73,6 +73,7 @@ export default function TablePage() {
         })
         setPlatMap(map)
       }).catch(() => {})
+      api.get('/tables/equipos_perforacion').then(r => setEquipos(r.data || [])).catch(() => {})
     }
   }, [tkey, proyectoActivo])
 
@@ -175,6 +176,8 @@ export default function TablePage() {
   }
   const canImport    = user.role === 'ADMIN'
   const tieneReporte = TIENE_REPORTE.has(tkey)
+  const equipoColorMap = {}
+  equipos.forEach(e => { equipoColorMap[e.EQUIPO] = hexToRgba(e.COLOR) })
 
   return (
     <div>
@@ -213,6 +216,13 @@ export default function TablePage() {
             style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
             onClick={() => setTopoModal(true)}>
             👷 Gestionar Topógrafos
+          </button>
+        )}
+        {tkey === 'programa_general' && canWrite && (
+          <button className="btn btn-out"
+            style={{ width:'100%', padding:'12px', fontSize:14, borderRadius:10, justifyContent:'center' }}
+            onClick={() => setEquipoModal(true)}>
+            🔩 Gestionar Equipos de Perforación
           </button>
         )}
       </div>
@@ -280,15 +290,18 @@ export default function TablePage() {
                               } catch(err) { show('Error al guardar equipo','err') }
                             }}
                             style={{
-                              background: EQUIPO_COLOR[row.EQUIPO]?.bg || 'var(--sur2)',
-                              color:      EQUIPO_COLOR[row.EQUIPO]?.color || 'var(--mut)',
-                              border: `1px solid ${EQUIPO_COLOR[row.EQUIPO]?.color || 'var(--brd)'}`,
+                              background: equipoColorMap[row.EQUIPO]?.bg || 'var(--sur2)',
+                              color:      equipoColorMap[row.EQUIPO]?.color || 'var(--mut)',
+                              border: `1px solid ${equipoColorMap[row.EQUIPO]?.color || 'var(--brd)'}`,
                               borderRadius:6, padding:'4px 8px',
                               fontSize:12, fontWeight: row.EQUIPO ? 600 : 400,
                               cursor:'pointer', outline:'none', minWidth:120,
                             }}>
                             <option value="">— Sin equipo —</option>
-                            {EQUIPOS_PG.map(e => <option key={e} value={e}>{e}</option>)}
+                            {equipos.map(e => <option key={e.id} value={e.EQUIPO}>{e.EQUIPO}</option>)}
+                            {row.EQUIPO && !equipos.some(e => e.EQUIPO === row.EQUIPO) && (
+                              <option value={row.EQUIPO}>{row.EQUIPO}</option>
+                            )}
                           </select>
                         )
                         : NUM_COLS.has(col) && row[col] !== undefined && row[col] !== null && row[col] !== ''
@@ -369,6 +382,14 @@ export default function TablePage() {
           topografos={topografos}
           onClose={() => setTopoModal(false)}
           onChange={setTopografos}
+          show={show}
+        />
+      )}
+      {equipoModal && (
+        <EquiposModal
+          equipos={equipos}
+          onClose={() => setEquipoModal(false)}
+          onChange={setEquipos}
           show={show}
         />
       )}
@@ -453,6 +474,102 @@ function TopografosModal({ topografos, onClose, onChange, show }) {
                 <div style={{ flex:1 }}>
                   <span style={{ fontWeight:600, fontSize:13 }}>{t.Topografo}</span>
                   <span style={{ marginLeft:8, fontSize:12, color:'var(--mut)', background:'var(--sur)', padding:'2px 6px', borderRadius:4 }}>{t.COD_TOPO}</span>
+                </div>
+                <button className="btn btn-blu btn-sm" onClick={() => startEdit(t)}>✎</button>
+                <button className="btn btn-red btn-sm" onClick={() => handleDelete(t)}>🗑</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="m-actions">
+          <button className="btn btn-out" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EquiposModal({ equipos, onClose, onChange, show }) {
+  const [list,    setList]    = React.useState(equipos)
+  const [form,    setForm]    = React.useState({ EQUIPO: '', COLOR: '#3b82f6' })
+  const [editing, setEditing] = React.useState(null)
+  const [saving,  setSaving]  = React.useState(false)
+
+  async function handleSave() {
+    if (!form.EQUIPO.trim()) {
+      show('El nombre del equipo es obligatorio', 'err'); return
+    }
+    setSaving(true)
+    try {
+      if (editing) {
+        const r = await api.put(`/tables/equipos_perforacion/${editing.id}`, form)
+        const updated = list.map(t => t.id === editing.id ? r.data : t)
+        setList(updated); onChange(updated)
+        show('Equipo actualizado ✓', 'ok')
+      } else {
+        const r = await api.post('/tables/equipos_perforacion', form)
+        const updated = [...list, r.data]
+        setList(updated); onChange(updated)
+        show('Equipo agregado ✓', 'ok')
+      }
+      setForm({ EQUIPO: '', COLOR: '#3b82f6' }); setEditing(null)
+    } catch (err) {
+      const errs = err.response?.data?.errors
+      show(errs ? errs.map(e => e.message).join(' · ') : ('Error: ' + (err.response?.data?.error || err.message)), 'err')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDelete(t) {
+    if (!window.confirm(`¿Eliminar equipo "${t.EQUIPO}"? Los registros que ya lo usan conservarán el nombre.`)) return
+    try {
+      await api.delete(`/tables/equipos_perforacion/${t.id}`)
+      const updated = list.filter(x => x.id !== t.id)
+      setList(updated); onChange(updated)
+      show('Eliminado ✓', 'ok')
+    } catch { show('Error al eliminar', 'err') }
+  }
+
+  function startEdit(t) {
+    setEditing(t)
+    setForm({ EQUIPO: t.EQUIPO || '', COLOR: t.COLOR || '#3b82f6' })
+  }
+
+  return (
+    <div className="m-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="m-box">
+        <div className="m-title">🔩 Gestionar Equipos de Perforación</div>
+        <div className="fgrid" style={{ marginBottom: 12 }}>
+          <div className="fg">
+            <label>Nombre del Equipo *</label>
+            <input value={form.EQUIPO} onChange={e => setForm(p => ({...p, EQUIPO: e.target.value}))} placeholder="Ej: HYDX-5A-08" />
+          </div>
+          <div className="fg">
+            <label>Color</label>
+            <input type="color" value={form.COLOR} onChange={e => setForm(p => ({...p, COLOR: e.target.value}))}
+              style={{ width:'100%', height:38, padding:2, cursor:'pointer' }} />
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+          <button className="btn btn-acc btn-sm" onClick={handleSave} disabled={saving}>
+            {saving ? '⏳' : editing ? '💾 Actualizar' : '➕ Agregar'}
+          </button>
+          {editing && (
+            <button className="btn btn-out btn-sm" onClick={() => { setEditing(null); setForm({ EQUIPO:'', COLOR:'#3b82f6' }) }}>
+              Cancelar
+            </button>
+          )}
+        </div>
+        {list.length === 0 ? (
+          <div style={{ color:'var(--mut)', fontSize:13, textAlign:'center', padding:'16px 0' }}>Sin equipos registrados</div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {list.map(t => (
+              <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', background:'var(--sur2)', borderRadius:8 }}>
+                <div style={{ flex:1 }}>
+                  <span style={{
+                    fontWeight:600, fontSize:12, padding:'3px 8px', borderRadius:6,
+                    background: hexToRgba(t.COLOR).bg, color: t.COLOR, border:`1px solid ${t.COLOR}`,
+                  }}>{t.EQUIPO}</span>
                 </div>
                 <button className="btn btn-blu btn-sm" onClick={() => startEdit(t)}>✎</button>
                 <button className="btn btn-red btn-sm" onClick={() => handleDelete(t)}>🗑</button>
