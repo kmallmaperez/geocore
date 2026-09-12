@@ -67,7 +67,7 @@ Abre http://localhost:5173 · Login: admin@geocore.pe / admin123
 
 ## Credenciales iniciales
 - Email: admin@geocore.pe
-- Contraseña: admin123
+- Contraseña: xxmxxx2x
 - El admin crea los demás usuarios desde la sección "Usuarios"
 
 ## Notas
